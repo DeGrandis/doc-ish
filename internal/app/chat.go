@@ -366,24 +366,13 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 		}
 	}
 
-	if obs, _ := st.Observations(p.ID, "", 0); len(obs) > 0 {
-		latest := map[string]store.Observation{}
-		var order []string
-		count := map[string]int{}
-		for _, o := range obs {
-			k := strings.ToLower(o.Name)
-			if _, ok := latest[k]; !ok {
-				order = append(order, k)
-			}
-			latest[k] = o
-			count[k]++
-		}
+	if ms, _ := st.Measurements(p.ID); len(ms) > 0 {
 		b.WriteString("\n## Latest measurements\n")
-		for i, k := range order {
+		for i, m := range ms {
 			if i >= 40 {
 				break
 			}
-			o := latest[k]
+			o := m.Latest
 			v := o.ValueText
 			if o.Value != nil {
 				v = strconv.FormatFloat(*o.Value, 'f', -1, 64)
@@ -398,8 +387,19 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 					s += " (flag " + o.Flag + ")"
 				}
 			}
-			if count[k] > 1 {
-				s += fmt.Sprintf("; %d readings in all", count[k])
+			if strings.HasPrefix(o.Note, "daily") || strings.HasPrefix(o.Note, "the day's") {
+				s += " (" + o.Note + ")"
+			}
+			// Where it came from, so "my hospital records" or "my watch"
+			// finds it, and the file can be read.
+			if strings.HasPrefix(o.Note, "from hospital records") {
+				s += " (from hospital records)"
+			}
+			if o.DocumentID != nil {
+				s += fmt.Sprintf(" [doc:%d]", *o.DocumentID)
+			}
+			if m.Count > 1 {
+				s += fmt.Sprintf("; %d readings since %s", m.Count, m.First[:min(len(m.First), 10)])
 			}
 			b.WriteString(strings.TrimSpace(s) + "\n")
 		}

@@ -33,6 +33,7 @@ type Config struct {
 	Version   string
 	Password  string // MYMEDICAL_PASSWORD: unlock at start
 	OllamaURL string // MYMEDICAL_OLLAMA_URL: the default until Settings has one
+	BackupDir string // MYMEDICAL_BACKUP_DIR: the default folder for automatic backups
 	Web       fs.FS
 }
 
@@ -74,6 +75,7 @@ func New(cfg Config) (*App, error) {
 		a.ref = ref
 	}
 	go a.readLoop(ctx)
+	go a.backupLoop(ctx)
 	if cfg.Password != "" && vault.Exists(cfg.DataDir) {
 		key, err := vault.Unlock(cfg.DataDir, cfg.Password)
 		if err != nil {
@@ -156,6 +158,7 @@ func (a *App) Handler() http.Handler {
 	mux.HandleFunc("POST /api/login", a.handleLogin)
 	mux.HandleFunc("POST /api/recover", a.handleRecover)
 	mux.HandleFunc("POST /api/logout", a.handleLogout)
+	mux.HandleFunc("POST /api/restore", a.handleRestore) // only before setup
 
 	auth := func(pattern string, h func(http.ResponseWriter, *http.Request)) {
 		mux.HandleFunc(pattern, a.requireAuth(h))
@@ -192,6 +195,10 @@ func (a *App) Handler() http.Handler {
 	auth("GET /api/documents/{id}/thumb", a.handleSeriesThumb)
 	auth("PUT /api/studies/{id}/report", a.handleStudyReport)
 	auth("GET /api/instances/{id}/pixels", a.handlePixels)
+	auth("POST /api/backup", a.handleBackup)
+	auth("GET /api/backups", a.handleAutoBackup)
+	auth("PUT /api/backups", a.handleSaveAutoBackup)
+	auth("POST /api/backups/run", a.handleRunBackup)
 	auth("GET /api/reference", a.handleReference)
 	auth("POST /api/reference/{source}/download", a.handleReferenceDownload)
 	auth("POST /api/reference/loinc", a.handleLOINC)

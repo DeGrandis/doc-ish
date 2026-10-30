@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -419,37 +420,18 @@ func obsLine(o store.Observation) string {
 }
 
 func (e *toolEnv) listMeasurements() (string, error) {
-	obs, err := e.st.Observations(e.pid, "", 0)
+	ms, err := e.st.Measurements(e.pid)
 	if err != nil {
 		return "", err
 	}
-	type agg struct {
-		name        string
-		n           int
-		first, last store.Observation
-	}
-	by := map[string]*agg{}
-	var order []string
-	for _, o := range obs {
-		k := strings.ToLower(o.Name)
-		g := by[k]
-		if g == nil {
-			g = &agg{name: o.Name, first: o}
-			by[k] = g
-			order = append(order, k)
-		}
-		g.n++
-		g.last = o
-	}
-	sort.Strings(order)
+	sort.Slice(ms, func(i, j int) bool { return strings.ToLower(ms[i].Name) < strings.ToLower(ms[j].Name) })
 	e.note("list_measurements", "Listed measurements", 0)
-	if len(order) == 0 {
+	if len(ms) == 0 {
 		return "Nothing measured on record yet.", nil
 	}
 	var b strings.Builder
-	for _, k := range order {
-		g := by[k]
-		fmt.Fprintf(&b, "- %s: %d reading%s from %s to %s; latest %s\n", g.name, g.n, plural(g.n), g.first.Observed, g.last.Observed, obsLine(g.last))
+	for _, m := range ms {
+		fmt.Fprintf(&b, "- %s: %d reading%s from %s to %s; latest %s\n", m.Name, m.Count, plural(m.Count), m.First, m.Latest.Observed, obsLine(m.Latest))
 	}
 	return b.String(), nil
 }
@@ -457,17 +439,13 @@ func (e *toolEnv) listMeasurements() (string, error) {
 // matchNames finds the measurement names a request means: exact first,
 // then any that contain it or it contains.
 func (e *toolEnv) matchNames(want string) ([]string, []string, error) {
-	obs, err := e.st.Observations(e.pid, "", 0)
+	ms, err := e.st.Measurements(e.pid)
 	if err != nil {
 		return nil, nil, err
 	}
-	seen := map[string]bool{}
 	var all []string
-	for _, o := range obs {
-		if !seen[strings.ToLower(o.Name)] {
-			seen[strings.ToLower(o.Name)] = true
-			all = append(all, o.Name)
-		}
+	for _, m := range ms {
+		all = append(all, m.Name)
 	}
 	w := strings.ToLower(strings.TrimSpace(want))
 	for _, n := range all {
@@ -538,22 +516,82 @@ func (e *toolEnv) getValues(name, from, to string) (string, error) {
 	}
 	var b strings.Builder
 	for _, n := range names {
-		obs, err := e.st.Observations(e.pid, n, 0)
+		obs, err := e.st.ObservationsIn(e.pid, n, from, to)
 		if err != nil {
 			return "", err
 		}
-		var rows []string
-		for _, o := range obs {
-			if inRange(o.Observed, from, to) {
-				rows = append(rows, "- "+obsLine(o))
-			}
+		fmt.Fprintf(&b, "%s, %d reading%s", n, len(obs), plural(len(obs)))
+		if from != "" || to != "" {
+			fmt.Fprintf(&b, " from %s to %s", or(from, "the start"), or(to, "now"))
 		}
-		if len(rows) > 200 {
-			rows = append([]string{fmt.Sprintf("(%d readings; the latest 200)", len(rows))}, rows[len(rows)-200:]...)
+		b.WriteString(":\n")
+		b.WriteString(valueStats(obs))
+		rows := obs
+		if len(rows) > maxValueRows {
+			fmt.Fprintf(&b, "The latest %d:\n", maxValueRows)
+			rows = rows[len(rows)-maxValueRows:]
 		}
-		fmt.Fprintf(&b, "%s, %d reading%s:\n%s\n", n, len(rows), plural(len(rows)), strings.Join(rows, "\n"))
+		for _, o := range rows {
+			b.WriteString("- " + obsLine(o) + "\n")
+		}
 	}
 	return b.String(), nil
+}
+
+// maxValueRows is how many readings get_values lists one by one; beyond
+// that the averages carry it, so years of daily values fit the context.
+const maxValueRows = 40
+
+func or(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+// valueStats sums readings up so the model can quote an average instead
+// of working one out: overall, and month by month when they span months.
+func valueStats(obs []store.Observation) string {
+	type agg struct {
+		sum, lo, hi float64
+		n           int
+	}
+	add := func(g *agg, v float64) {
+		if g.n == 0 {
+			g.lo, g.hi = v, v
+		}
+		g.sum += v
+		g.n++
+		g.lo, g.hi = min(g.lo, v), max(g.hi, v)
+	}
+	var all agg
+	months := map[string]*agg{}
+	var order []string
+	for _, o := range obs {
+		if o.Value == nil {
+			continue
+		}
+		k := o.Observed[:min(len(o.Observed), 7)]
+		if months[k] == nil {
+			months[k] = &agg{}
+			order = append(order, k)
+		}
+		add(&all, *o.Value)
+		add(months[k], *o.Value)
+	}
+	if all.n < 2 {
+		return ""
+	}
+	r := func(f float64) string { return strconv.FormatFloat(math.Round(f*10)/10, 'f', -1, 64) }
+	s := fmt.Sprintf("Average %s, lowest %s, highest %s.\n", r(all.sum/float64(all.n)), r(all.lo), r(all.hi))
+	if len(order) > 1 {
+		s += "By month:\n"
+		for _, k := range order {
+			g := months[k]
+			s += fmt.Sprintf("- %s: average %s, lowest %s, highest %s (%d)\n", k, r(g.sum/float64(g.n)), r(g.lo), r(g.hi), g.n)
+		}
+	}
+	return s
 }
 
 func (e *toolEnv) chart(want []string, from, to, title string) (string, error) {
@@ -574,7 +612,7 @@ func (e *toolEnv) chart(want []string, from, to, title string) (string, error) {
 			if len(spec.Series) == 4 {
 				break
 			}
-			obs, err := e.st.Observations(e.pid, n, 0)
+			obs, err := e.st.ObservationsIn(e.pid, n, from, to)
 			if err != nil {
 				return "", err
 			}

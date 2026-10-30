@@ -12,12 +12,13 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /out/mymedical ./cmd/mymedical
 RUN mkdir -p /out/data
 
-# On Debian slim: Poppler reads and renders PDFs for the file reader, and
-# GDCM's gdcmconv decompresses the DICOM images Go can't read itself (JPEG
+# On Debian slim: Poppler reads and renders PDFs for the file reader,
+# Tesseract reads the print on scanned pages (English), and GDCM's
+# gdcmconv decompresses the DICOM images Go can't read itself (JPEG
 # Lossless, JPEG-LS, JPEG 2000, RLE), which Alpine doesn't package.
 FROM debian:trixie-slim AS app
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates poppler-utils libgdcm-tools \
+ && apt-get install -y --no-install-recommends ca-certificates poppler-utils libgdcm-tools tesseract-ocr \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 65532 --no-create-home --shell /usr/sbin/nologin app
 COPY --from=build /out/mymedical /mymedical

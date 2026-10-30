@@ -113,7 +113,7 @@ function valuesTable(vals) {
 function showGateForm(id) {
   $("#shell").hidden = true;
   $("#gate").hidden = false;
-  for (const f of ["setup-form", "recovery-show", "login-form", "recover-form"]) $("#" + f).hidden = f !== id;
+  for (const f of ["setup-form", "recovery-show", "login-form", "recover-form", "restore-form"]) $("#" + f).hidden = f !== id;
   const first = $(`#${id} input`);
   if (first) setTimeout(() => first.focus(), 0);
 }
@@ -165,6 +165,35 @@ $("#login-form").addEventListener("submit", async e => {
   btn.textContent = "Sign in";
 });
 $("#to-recover").addEventListener("click", () => showGateForm("recover-form"));
+
+// Restore, on a fresh install only.
+$("#to-restore").addEventListener("click", () => showGateForm("restore-form"));
+$("#restore-back").addEventListener("click", () => showGateForm("setup-form"));
+$("#restore-use-rec").addEventListener("click", () => {
+  $(".restore-pw").hidden = true;
+  $(".restore-rec").hidden = false;
+  $("#restore-use-rec").hidden = true;
+});
+$("#restore-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, fd = new FormData();
+  formError(f, "");
+  if ($(".restore-rec").hidden) fd.append("password", f.password.value);
+  else { fd.append("recovery", f.recovery.value); fd.append("new_password", f.new_password.value); }
+  fd.append("file", f.file.files[0]); // last, so the fields arrive first
+  const btn = $("button[type=submit]", f);
+  btn.disabled = true;
+  btn.textContent = "Restoring…";
+  try {
+    const r = await fetch("/api/restore", { method: "POST", body: fd });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    f.reset();
+    startApp();
+  } catch (err) { formError(f, err.message); }
+  btn.disabled = false;
+  btn.textContent = "Restore";
+});
 $("#to-login").addEventListener("click", () => showGateForm("login-form"));
 $("#recover-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -321,8 +350,32 @@ function readerNote(busy) {
   else if (busy) { el.hidden = false; el.textContent = `Reading ${busy} file${busy > 1 ? "s" : ""}…`; }
   else el.hidden = true;
   const rs = $("#reader-status");
-  rs.textContent = r.error ? `Reading files is paused: ${r.error}` : r.reading ? "Reading a file now." : "";
+  rs.textContent = r.error ? `Reading files is paused: ${r.error}` : r.reading ? `Reading a file now${r.progress ? `: ${r.progress}` : ""}.` : "";
   rs.classList.toggle("neg", !!r.error);
+  showProgress();
+}
+
+// showProgress fills the bar under the header: an upload going up, then
+// the file being read (pages done of pages, for a long one).
+function showProgress() {
+  const el = $("#progress"), u = state.uploading, r = state.reader || {};
+  let text = "", frac = null;
+  if (u) {
+    frac = u.total ? u.loaded / u.total : null;
+    text = frac !== null && frac < 1 ? `Uploading ${u.label}… ${Math.round(frac * 100)}%` : `Storing ${u.label} (encrypting it)…`;
+    if (frac >= 1) frac = null;
+  } else if (r.reading && !r.error) {
+    const d = (state.docs || []).find(x => x.id === r.reading);
+    text = `Reading ${d ? (d.title || d.filename) : "a file"}${r.progress ? `: ${r.progress}` : "…"}`;
+    if (r.total) frac = r.done / r.total;
+    const waiting = (state.docs || []).filter(x => x.status === "new").length;
+    if (waiting) text += ` · ${waiting} more waiting`;
+  }
+  el.hidden = !text;
+  if (!text) return;
+  $("#progress-text").textContent = text;
+  el.classList.toggle("unknown", frac === null);
+  $("#progress-fill").style.width = frac === null ? "" : `${Math.max(3, Math.round(frac * 100))}%`;
 }
 
 // refreshView redraws whatever page is showing after files change.
@@ -480,7 +533,11 @@ async function openDoc(id) {
 // statusBox says where a file stands, with what can be done about it.
 function statusBox(d) {
   if (d.status === "new") return `<p class="status-box">Waiting to be read.${state.reader && state.reader.error ? ` Reading is paused: ${esc(state.reader.error)}` : ""}</p>`;
-  if (d.status === "reading") return `<p class="status-box"><span class="typing"></span> Reading it now…</p>`;
+  if (d.status === "reading") {
+    const r = state.reader || {};
+    const where = r.reading === d.id && r.progress ? `: ${esc(r.progress)}` : "";
+    return `<p class="status-box"><span class="typing"></span> Reading it now${where}…</p>`;
+  }
   if (d.status === "failed") return `<div class="status-box bad"><p>Couldn't read it: ${esc(d.review_reason)}</p><div class="row"><button data-reread="${d.id}">Read again</button></div></div>`;
   if (d.status !== "review") return "";
   const better = moveTarget(d);
@@ -951,13 +1008,26 @@ async function upload(files) {
   const who = state.person;
   const fd = new FormData();
   for (const f of files) fd.append("file", f, f.name);
-  toast(`Adding ${files.length} file${files.length > 1 ? "s" : ""} to ${who.name}'s records…`);
+  const label = files.length > 1 ? `${files.length} files` : files[0].name;
+  state.uploading = { label, loaded: 0, total: files.reduce((n, f) => n + f.size, 0) };
+  showProgress();
   let res;
   try {
-    const r = await fetch(`/api/people/${who.id}/documents`, { method: "POST", body: fd });
-    res = await r.json();
-    if (!r.ok) throw new Error(res.error || r.statusText);
-  } catch (err) { toast(err.message, true); return; }
+    // XMLHttpRequest, not fetch: it says how much has gone up, for the bar.
+    res = await new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", `/api/people/${who.id}/documents`);
+      x.upload.onprogress = e => { if (e.lengthComputable) { state.uploading.loaded = e.loaded; state.uploading.total = e.total; showProgress(); } };
+      x.onload = () => {
+        let body;
+        try { body = JSON.parse(x.responseText); } catch { body = {}; }
+        x.status >= 200 && x.status < 300 ? resolve(body) : reject(new Error(body.error || x.statusText));
+      };
+      x.onerror = () => reject(new Error("The upload was interrupted. Check the connection and try again."));
+      x.send(fd);
+    });
+  } catch (err) { state.uploading = null; showProgress(); toast(err.message, true); return; }
+  state.uploading = null;
   const added = res.filter(x => x.document && !x.duplicate);
   const dup = res.filter(x => x.duplicate);
   const bad = res.filter(x => x.error);
@@ -1147,7 +1217,60 @@ async function loadSettings() {
   renderPeopleList();
   renderRecipes();
   renderReference();
+  loadAutoBackup();
 }
+
+// ---------- backups ----------
+
+$("#backup-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target, btn = $("button", f);
+  btn.disabled = true;
+  btn.textContent = "Making the backup…";
+  try {
+    const r = await fetch("/api/backup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: f.password.value }) });
+    if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m; } catch {} throw new Error(m); }
+    const blob = await r.blob();
+    const name = (r.headers.get("Content-Disposition") || "").match(/filename="([^"]+)"/);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name ? name[1] : "backup.tar";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    f.reset();
+    toast("Backup downloaded");
+  } catch (err) { toast(err.message, true); }
+  btn.disabled = false;
+  btn.textContent = "Download a backup";
+});
+
+function showAutoBackup(b) {
+  const f = $("#auto-backup-form");
+  f.dir.value = b.dir || "";
+  f.keep.value = b.keep;
+  f.every_hours.value = String(b.every_hours);
+  const st = $("#auto-backup-status");
+  st.classList.toggle("neg", !!b.last_error);
+  st.textContent = b.last_error ? `The last automatic backup failed: ${b.last_error}`
+    : b.last ? `Last backup ${new Date(b.last).toLocaleString()}${b.last_file ? ": " + b.last_file : ""}.` : b.dir ? "No backup yet; the first runs within ten minutes." : "";
+}
+async function loadAutoBackup() {
+  try { showAutoBackup(await api("GET", "/api/backups")); } catch {}
+}
+$("#auto-backup-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    showAutoBackup(await api("PUT", "/api/backups", { dir: f.dir.value, keep: +f.keep.value, every_hours: +f.every_hours.value }));
+    toast("Saved");
+  } catch (err) { toast(err.message, true); }
+});
+$("#backup-now").addEventListener("click", async e => {
+  e.target.disabled = true;
+  try { showAutoBackup(await api("POST", "/api/backups/run")); toast("Backed up"); }
+  catch (err) { toast(err.message, true); loadAutoBackup(); }
+  e.target.disabled = false;
+});
 
 // ---------- reference data ----------
 
@@ -1230,16 +1353,18 @@ function fillModelSelects(models, s) {
   const f = $("#ai-form");
   const chat = s ? s.chat_model : f.chat_model.value;
   const vision = s ? s.vision_model : f.vision_model.value;
+  const ocr = s ? s.ocr_model : f.ocr_model.value;
   const opts = (want, need) => {
     const list = models.slice();
     if (want && !list.find(m => m.name === want)) list.unshift({ name: want, tools: true, vision: true, missing: true });
     return `<option value="">None</option>` + list.map(m => {
-      const ok = need === "tools" ? m.tools : m.vision;
+      const ok = need === "tools" ? m.tools : need === "any" ? true : m.vision;
       return `<option value="${esc(m.name)}" ${m.name === want ? "selected" : ""} ${ok || m.missing ? "" : "disabled"}>${esc(m.name)}${m.missing ? " (not found)" : ""}${m.size ? ` · ${(m.size / 1e9).toFixed(1)} GB` : ""}</option>`;
     }).join("");
   };
   f.chat_model.innerHTML = opts(chat, "tools");
   f.vision_model.innerHTML = opts(vision, "vision");
+  f.ocr_model.innerHTML = opts(ocr, "any");
 }
 
 async function checkModels(quiet) {
@@ -1306,7 +1431,7 @@ $("#ai-form").addEventListener("submit", async e => {
   try {
     await api("PUT", "/api/settings", {
       provider: f.dataset.provider || "ollama",
-      ollama_url: f.ollama_url.value, chat_model: f.chat_model.value, vision_model: f.vision_model.value, num_ctx: +f.num_ctx.value,
+      ollama_url: f.ollama_url.value, chat_model: f.chat_model.value, vision_model: f.vision_model.value, ocr_model: f.ocr_model.value, num_ctx: +f.num_ctx.value,
       remote_url: f.remote_url.value, remote_key: f.remote_key.value, remote_model: f.remote_model.value,
       remote_vision_model: f.remote_vision_model.value, consent: f.consent.value,
     });

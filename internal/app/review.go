@@ -108,6 +108,15 @@ func (a *App) handleAccept(w http.ResponseWriter, r *http.Request) {
 			if d.Status != store.StatusReview {
 				return errors.New("this file isn't waiting for a look")
 			}
+			if isExport(d.Mime) {
+				// Import it again, this time without the checks.
+				prev := snapshot(d)
+				d.Status, d.ReviewReason, d.Extracted = store.StatusNew, "", exportChecked
+				if err := store.UpdateDocumentTx(tx, d); err != nil {
+					return err
+				}
+				return store.LogDocTx(tx, d.PersonID, d.ID, "you", "Checked "+d.Filename+": importing it", undoOp{Op: "accept", DocumentID: id, Prev: &prev})
+			}
 			var res ingest.Result
 			if d.Extracted != "" {
 				if err := json.Unmarshal([]byte(d.Extracted), &res); err != nil {
@@ -148,6 +157,9 @@ func (a *App) handleAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		d, _ := st.Document(id)
+		if d.Status == store.StatusNew {
+			a.wakeReader()
+		}
 		writeJSON(w, viewOf(st, d))
 	})
 }
@@ -295,7 +307,13 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 		if err := store.UpdateDocumentTx(tx, d); err != nil {
 			return err
 		}
-		return store.MoveDocumentObservationsTx(tx, d.ID, d.PersonID)
+		if err := store.MoveDocumentObservationsTx(tx, d.ID, d.PersonID); err != nil {
+			return err
+		}
+		if u.PrevProfile == nil {
+			return nil
+		}
+		fallthrough // an import that also added to the profile
 	case "profile":
 		p, err := store.PersonTx(tx, u.PersonID)
 		if err != nil {

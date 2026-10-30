@@ -13,6 +13,8 @@ services:
       MYMEDICAL_ADDR: 0.0.0.0:8080
       # Fills in Settings → Assistant on a fresh install:
       MYMEDICAL_OLLAMA_URL: http://host.docker.internal:11434
+      # Automatic backups go to this folder (Settings → Backups can change it):
+      # MYMEDICAL_BACKUP_DIR: /backup
       # Unlocks the records whenever the app starts, so it never waits for
       # a sign-in after a restart. Convenient, but anyone who can read this
       # file can read the records:
@@ -22,5 +24,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - mymedical-data:/data
+      # A folder for automatic backups, for example a NAS share this
+      # machine has mounted:
+      # - /mnt/nas/mymedical:/backup
 volumes:
   mymedical-data:

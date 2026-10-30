@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -38,6 +37,14 @@ type Content struct {
 	Dicom     *Dicom   // tags, for a DICOM image
 	Extractor string   // what read it: text, pdftotext, pdf-images, image, dicom, docx
 	Full      string   // a table's whole text, for an import recipe
+	// A PDF's text page by page (a scanned page is empty), and the page
+	// number (from 1) each image is of, so a long file can be read a few
+	// pages at a time.
+	PageTexts  []string
+	ImagePages []int
+	// Doubts about how it was read, each a reason for a person to look
+	// before it's filed.
+	Doubts []string
 }
 
 // ErrUnsupported means there is no way to read this type yet.
@@ -46,7 +53,7 @@ var ErrUnsupported = errors.New("can't read this type of file yet")
 const (
 	maxRead     = 8 << 20 // bytes of a text file considered
 	maxCSVRows  = 150     // rows of a table given to the model
-	maxPDFPages = 4       // pages of a scanned PDF given to a vision model
+	maxPDFPages = 300     // scanned pages of a PDF read (by Tesseract, or a few at a time by a model)
 	maxImageDim = 1600    // pixels on the longest side sent to a vision model
 )
 
@@ -152,26 +159,49 @@ func extractPDF(ctx context.Context, r io.Reader, tmpDir string) (Content, error
 	f.Close()
 
 	c := Content{Pages: pdfPages(ctx, pdf), Extractor: "pdftotext"}
-	out, err := exec.CommandContext(ctx, "pdftotext", "-layout", "-enc", "UTF-8", pdf, "-").Output()
+	// Fixed pitch keeps a column at the same place on every page, so a
+	// table running over a page break still lines up under its header
+	// (plain -layout lays out each page on its own).
+	out, err := exec.CommandContext(ctx, "pdftotext", "-layout", "-fixed", "4", "-enc", "UTF-8", pdf, "-").Output()
 	if err != nil {
 		return Content{}, fmt.Errorf("couldn't read the PDF: %w", err)
 	}
-	c.Text = strings.TrimSpace(string(out))
-	pages := max(c.Pages, 1)
-	if len(strings.Fields(c.Text))/pages >= 15 {
+	// pdftotext ends each page with a form feed.
+	c.PageTexts = strings.Split(strings.TrimSuffix(string(out), "\f"), "\f")
+	c.PageTexts = dedent(c.PageTexts)
+	c.Pages = max(c.Pages, len(c.PageTexts))
+	c.Text = strings.TrimSpace(strings.Join(c.PageTexts, "\n\n"))
+
+	// A PDF with almost no text is a scan; so is a page with none in an
+	// otherwise text PDF (a faxed page among printed ones; a cover page
+	// with a few words isn't). Scans are rendered for a vision model.
+	allScan := len(strings.Fields(c.Text))/max(len(c.PageTexts), 1) < 15
+	var scans []int
+	for i, p := range c.PageTexts {
+		if allScan || len(strings.Fields(p)) < 3 {
+			scans = append(scans, i+1)
+		}
+	}
+	if len(scans) == 0 {
 		return c, nil
 	}
-
-	// A scan: render the first pages.
-	last := min(pages, maxPDFPages)
-	prefix := filepath.Join(dir, "page")
-	if err := exec.CommandContext(ctx, "pdftoppm", "-r", "130", "-jpeg", "-f", "1", "-l", fmt.Sprint(last), pdf, prefix).Run(); err != nil {
-		return Content{}, fmt.Errorf("couldn't render the scanned PDF: %w", err)
+	if len(scans) == len(c.PageTexts) {
+		c.Extractor = "pdf-images"
+		c.Note = "A scanned PDF; the reader looked at it as images."
+	} else {
+		c.Note = fmt.Sprintf("%d of its %d pages are scans; the reader looked at those as images.", len(scans), c.Pages)
 	}
-	files, _ := filepath.Glob(prefix + "*.jpg")
-	sort.Strings(files)
-	for _, p := range files {
-		b, err := os.ReadFile(p)
+	if len(scans) > maxPDFPages {
+		c.Sampled = true
+		c.Note = fmt.Sprintf("%d of its %d pages are scans; the reader looked at the first %d of them as images.", len(scans), c.Pages, maxPDFPages)
+		scans = scans[:maxPDFPages]
+	}
+	for _, n := range scans {
+		prefix := filepath.Join(dir, fmt.Sprintf("page-%d", n))
+		if err := exec.CommandContext(ctx, "pdftoppm", "-r", "130", "-jpeg", "-singlefile", "-f", fmt.Sprint(n), "-l", fmt.Sprint(n), pdf, prefix).Run(); err != nil {
+			return Content{}, fmt.Errorf("couldn't render page %d of the PDF: %w", n, err)
+		}
+		b, err := os.ReadFile(prefix + ".jpg")
 		if err != nil {
 			return Content{}, err
 		}
@@ -180,14 +210,36 @@ func extractPDF(ctx context.Context, r io.Reader, tmpDir string) (Content, error
 			return Content{}, err
 		}
 		c.Images = append(c.Images, img)
-	}
-	c.Extractor = "pdf-images"
-	c.Note = "A scanned PDF; the reader looked at it as images."
-	if pages > last {
-		c.Sampled = true
-		c.Note = fmt.Sprintf("A scanned PDF of %d pages; the reader looked at the first %d.", pages, last)
+		c.ImagePages = append(c.ImagePages, n)
 	}
 	return c, nil
+}
+
+// dedent takes off the margin every line shares, and trailing space.
+func dedent(pages []string) []string {
+	margin := -1
+	for _, p := range pages {
+		for _, l := range strings.Split(p, "\n") {
+			if t := strings.TrimLeft(l, " "); t != "" {
+				if n := len(l) - len(t); margin < 0 || n < margin {
+					margin = n
+				}
+			}
+		}
+	}
+	out := make([]string, len(pages))
+	for i, p := range pages {
+		lines := strings.Split(p, "\n")
+		for k, l := range lines {
+			l = strings.TrimRight(l, " ")
+			if len(l) >= margin && margin > 0 {
+				l = l[margin:]
+			}
+			lines[k] = l
+		}
+		out[i] = strings.Trim(strings.Join(lines, "\n"), "\n")
+	}
+	return out
 }
 
 func pdfPages(ctx context.Context, pdf string) int {

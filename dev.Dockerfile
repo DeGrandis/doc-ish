@@ -3,5 +3,5 @@
 #   docker build -t mymedical-devbase -f dev.Dockerfile .
 FROM golang:1.26
 RUN apt-get update \
- && apt-get install -y --no-install-recommends poppler-utils libgdcm-tools \
+ && apt-get install -y --no-install-recommends poppler-utils libgdcm-tools tesseract-ocr \
  && rm -rf /var/lib/apt/lists/*

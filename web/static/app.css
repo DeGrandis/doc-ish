@@ -250,3 +250,16 @@ pre.script { font-family: var(--mono); font-size: var(--fs-xs); background: var(
 #drop-overlay > div { border: 2px dashed var(--accent); border-radius: var(--r-lg); padding: var(--s-7) var(--s-8); text-align: center; background: var(--accent-soft); display: flex; flex-direction: column; gap: 4px; }
 #drop-overlay b { font-family: var(--font-display); font-size: 28px; font-weight: 400; }
 #drop-overlay span { color: var(--text-2); }
+
+/* Uploads and reading: what's happening, with a bar (moving stripes when
+   how long is unknown). */
+#progress { position: fixed; top: calc(var(--nav-h) + 8px); left: 50%; transform: translateX(-50%); z-index: 40; width: min(560px, calc(100% - 32px));
+  display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-radius: var(--r-sm); font-size: var(--fs-sm);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg)); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+#progress[hidden] { display: none; }
+#progress-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.progress-track { display: block; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--accent) 18%, transparent); overflow: hidden; }
+#progress-fill { display: block; height: 100%; width: 0; border-radius: 3px; background: var(--accent); transition: width .4s ease; }
+#progress.unknown #progress-fill { width: 35%; animation: progress-slide 1.2s ease-in-out infinite; }
+@keyframes progress-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { #progress.unknown #progress-fill { animation: none; width: 100%; opacity: .4; } }

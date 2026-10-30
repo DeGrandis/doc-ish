@@ -129,6 +129,11 @@ func (s *Store) NextToRead() (Document, error) {
 	return scanDoc(s.db.QueryRow(`SELECT ` + docCols + ` FROM documents WHERE status = 'new' ORDER BY id LIMIT 1`))
 }
 
+// NextExport is the oldest health export waiting to be imported.
+func (s *Store) NextExport() (Document, error) {
+	return scanDoc(s.db.QueryRow(`SELECT ` + docCols + ` FROM documents WHERE status = 'new' AND mime LIKE 'application/x-health-export%' ORDER BY id LIMIT 1`))
+}
+
 // ResetReading puts files left half-read (the app stopped) back in line.
 func (s *Store) ResetReading() error {
 	_, err := s.db.Exec(`UPDATE documents SET status = 'new' WHERE status = 'reading'`)

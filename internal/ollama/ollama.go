@@ -166,10 +166,12 @@ func (t Tool) MarshalJSON() ([]byte, error) {
 
 // ChatRequest is a streaming chat call.
 type ChatRequest struct {
-	Model    string
-	Messages []Message
-	NumCtx   int
-	Tools    []Tool
+	Model      string
+	Messages   []Message
+	NumCtx     int
+	Tools      []Tool
+	NumPredict int  // the longest answer in tokens; 0 is maxAnswerTokens
+	Exact      bool // temperature 0: the same answer every time (OCR)
 }
 
 // maxAnswerTokens is the longest chat answer: a long, detailed answer is
@@ -182,6 +184,14 @@ var ErrNoTools = errors.New("this model can't use tools")
 // Chat streams the reply, calling onText with each piece as it arrives,
 // and returns the whole reply and any tools the model asked to run.
 func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (string, []ToolCall, error) {
+	predict := r.NumPredict
+	if predict <= 0 {
+		predict = maxAnswerTokens
+	}
+	temp := 0.2
+	if r.Exact {
+		temp = 0
+	}
 	body := map[string]any{
 		"model":    r.Model,
 		"messages": r.Messages,
@@ -189,7 +199,7 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		"think":    false,
 		// num_predict caps an answer, so a model that starts repeating
 		// itself stops in seconds instead of filling its whole context.
-		"options": map[string]any{"temperature": 0.2, "num_ctx": r.NumCtx, "num_predict": maxAnswerTokens},
+		"options": map[string]any{"temperature": temp, "num_ctx": r.NumCtx, "num_predict": predict},
 	}
 	if len(r.Tools) > 0 {
 		body["tools"] = r.Tools

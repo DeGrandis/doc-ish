@@ -52,6 +52,7 @@ func Check(r Result, c Content, owner Person, others []Person, today time.Time) 
 			reasons = append(reasons, "Only part of this long file was read.")
 		}
 	}
+	reasons = append(reasons, c.Doubts...)
 	reasons = append(reasons, r.Questions...)
 	return reasons, better
 }

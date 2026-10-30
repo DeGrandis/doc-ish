@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/DeGrandis/mymedical/internal/blobs"
+	"github.com/DeGrandis/mymedical/internal/healthexport"
 	"github.com/DeGrandis/mymedical/internal/imaging"
 	"github.com/DeGrandis/mymedical/internal/store"
 )
@@ -117,6 +118,12 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 					results = append(results, res)
 					continue
 				}
+				if kind := exportKind(path); kind != "" {
+					res = a.addExport(st, files, pid, path, name)
+					os.Remove(path)
+					results = append(results, res)
+					continue
+				}
 				got, err := a.fromZip(st, files, pid, path, name)
 				os.Remove(path)
 				if err != nil {
@@ -188,6 +195,9 @@ func b2i(b bool) int {
 func sniff(name string, head []byte) string {
 	if len(head) >= 132 && string(head[128:132]) == "DICM" {
 		return "application/dicom"
+	}
+	if healthexport.IsAppleXML(head) {
+		return mimeExportXML
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {

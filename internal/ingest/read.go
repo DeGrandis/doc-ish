@@ -89,7 +89,7 @@ const instructions = `You read medical files for a family's private records app 
 - provider: the clinic, lab or doctor, if shown.
 - patient_name: the patient's name exactly as printed. Empty if not shown.
 - summary: two or three plain sentences about what it is and what it shows.
-- observations: every measured result or vital sign, one entry each, copied exactly: the test name, value (a number, or null with value_text for results like "Negative" or "<0.5"), unit, the reference range as ref_low/ref_high when printed (null when not), flag as printed (H, L, A, High, Low…, else empty), and date (YYYY-MM-DD) when it differs from doc_date. Never compute or guess values. For a table of readings, one entry per reading.
+- observations: every measured result or vital sign, one entry each, copied exactly: the test name, value (a number, or null with value_text for results like "Negative" or "<0.5"), unit, the reference range as ref_low/ref_high when printed (null when not), flag as printed (H, L, A, High, Low…, else empty), and date (YYYY-MM-DD) when it differs from doc_date. Never compute or guess values. For a table of readings, one entry per reading. When a table has a column for each date (a cumulative report: "Test | 03/10/2025 | 09/12/2025 | …"), every filled cell is its own observation, dated by its column: three dates mean up to three entries for each test, not one. An empty cell means no result that day.
 - medications: any medications named, with dose and directions in detail.
 - confidence: high if the file is clear and you read it fully; medium if parts were unclear; low if you can't tell what it is.
 - questions: only doubts about reading the file itself: a part you couldn't read, a value or name you weren't sure you read right, a table you couldn't line up. Results that are high or low are NOT questions (the app flags them from the ranges), and neither is a missing range. Usually empty.
@@ -107,6 +107,8 @@ type Request struct {
 	// DescribeOnly asks what the file is without copying its values: for a
 	// long table, which an import recipe reads instead.
 	DescribeOnly bool
+	// Progress hears which pages of a long file are being read.
+	Progress Progress
 }
 
 // describeRows is how much of a long table is shown when only describing it.
@@ -122,6 +124,17 @@ func Read(ctx context.Context, c ollama.Chatter, req Request) (Result, error) {
 	images := req.Content.Images
 	if text == "" && len(images) == 0 {
 		return Result{}, errors.New("there's no text or picture in it to read")
+	}
+	if isLong(req.Content) && !req.DescribeOnly {
+		if req.ChatModel == "" && req.VisionModel == "" {
+			return Result{}, errors.New("pick a chat model in Settings")
+		}
+		return readLong(ctx, c, req)
+	}
+
+	// A PDF's tables, written out cell by cell (see tables.go).
+	if len(req.Content.PageTexts) > 0 && len(images) == 0 {
+		text = strings.TrimSpace(strings.Join(tabulate(req.Content.PageTexts), "\n\n"))
 	}
 
 	model := req.ChatModel
@@ -192,12 +205,14 @@ func Read(ctx context.Context, c ollama.Chatter, req Request) (Result, error) {
 
 var isoDate = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
+var errUnreadable = errors.New("the model's answer wasn't readable; try a different model, or read it again")
+
 // Parse reads the model's JSON and tidies it: known kinds only, real
 // dates only, no empty or non-finite values.
 func Parse(raw string) (Result, error) {
 	var r Result
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &r); err != nil {
-		return r, errors.New("the model's answer wasn't readable; try a different model, or read it again")
+		return r, errUnreadable
 	}
 	r.Kind = strings.ToLower(strings.TrimSpace(r.Kind))
 	known := false

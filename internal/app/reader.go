@@ -49,13 +49,24 @@ func (a *App) readLoop(ctx context.Context) {
 
 // readerState is what Settings and the file lists show about the reader.
 type readerState struct {
-	Reading int64  `json:"reading,omitempty"` // the document being read
-	Error   string `json:"error,omitempty"`   // why it's paused
+	Reading  int64  `json:"reading,omitempty"`  // the document being read
+	Progress string `json:"progress,omitempty"` // what it's doing in a long one
+	Done     int    `json:"done,omitempty"`     // steps done of Total, for a progress bar
+	Total    int    `json:"total,omitempty"`
+	Error    string `json:"error,omitempty"` // why it's paused
 }
 
 func (a *App) setReader(id int64, errMsg string) {
 	a.readerMu.Lock()
 	a.reader = readerState{Reading: id, Error: errMsg}
+	a.readerMu.Unlock()
+}
+
+func (a *App) setProgress(id int64, what string, done, total int) {
+	a.readerMu.Lock()
+	if a.reader.Reading == id {
+		a.reader.Progress, a.reader.Done, a.reader.Total = what, done, total
+	}
 	a.readerMu.Unlock()
 }
 
@@ -91,6 +102,11 @@ func (a *App) readNext(ctx context.Context) bool {
 	}
 	st, files := a.st, a.files
 	set = a.settings(st)
+	// Health exports need no model.
+	if d, err := st.NextExport(); err == nil {
+		a.mu.RUnlock()
+		return a.importExport(ctx, d)
+	}
 	if msg := set.ready(); msg != "" {
 		a.mu.RUnlock()
 		a.setReader(0, "To read files, "+msg+".")
@@ -150,18 +166,33 @@ func (a *App) readNext(ctx context.Context) bool {
 		recipeNote = fmt.Sprintf("The import recipe “%s” didn't work on this file (%v), so the reader looked at it instead.", recipe.Name, err)
 	}
 
+	// Scanned pages and photos of paperwork: Tesseract reads the clearly
+	// printed ones, then the OCR model, when there is one, the rest.
+	if exErr == nil && len(cont.Images) > 0 {
+		exErr = ingest.Tesseract(ctx, &cont, func(what string, done, total int) { a.setProgress(doc.ID, what, done, total) })
+	}
+	if exErr == nil && set.ocrModel() != "" && len(cont.Images) > 0 {
+		if c, err := set.chatter(); err == nil {
+			exErr = ingest.OCR(ctx, c, set.ocrModel(), &cont, func(what string, done, total int) { a.setProgress(doc.ID, what, done, total) })
+		}
+	}
+
 	var res ingest.Result
 	if exErr == nil {
 		c, err := set.chatter()
 		if err != nil {
 			exErr = err
 		} else {
-			rctx, cancel := context.WithTimeout(ctx, readTimeout)
+			// A long file is read a few pages at a time, each with its own
+			// limit; this is only a backstop.
+			limit := readTimeout + time.Duration(len(cont.PageTexts)+len(cont.Images))*time.Minute
+			rctx, cancel := context.WithTimeout(ctx, limit)
 			res, exErr = ingest.Read(rctx, c, ingest.Request{
 				Filename: doc.Filename, PersonName: owner.Name, Today: time.Now(), Content: cont,
 				ChatModel: set.chatModel(), VisionModel: set.visionModel(), NumCtx: set.NumCtx,
 				// A long table: an import recipe reads the values.
 				DescribeOnly: cont.Sampled && fingerprint != "",
+				Progress:     func(what string, done, total int) { a.setProgress(doc.ID, what, done, total) },
 			})
 			cancel()
 		}

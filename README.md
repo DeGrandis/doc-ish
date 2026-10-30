@@ -8,7 +8,7 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 > It is not a doctor, and the assistant can be wrong. Talk to a clinician
 > about anything that matters; in an emergency, call emergency services.
 
-## What works today (milestones 1 to 6)
+## What works today
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -28,6 +28,34 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
   through Poppler; scans and photos go to a vision model; DICOM files are
   described from their own tags; Word files, CSVs, XML and text are read
   directly.
+- **Long files are read a few pages at a time**: a 100-page records
+  release, a binder of scanned faxes. The header and footer printed on
+  every page are taken off (and shown once); each part is told the last
+  section heading and date, and the header of a table that runs over from
+  the page before, since tables only print it above their first rows.
+  Text is laid out at a fixed pitch so a column sits in the same place on
+  every page, and tables are rewritten cell by cell (`| Ferritin |  | 18 L
+  | 41 |`), blank cells kept, with the header printed again on each page a
+  table runs onto: on an invented 24-page release with a lab table of
+  three dates over four pages, a 4B model went from 25 to 78 of its 80
+  values with their right dates. Every value keeps its own date, the same
+  value read twice is kept once, and the file is named and summed up from
+  all its parts, dated by its newest result.
+- **Scans and photos of paperwork** are read by Tesseract first (in the
+  image, no model, about a second a page on the CPU). It notes where on
+  the page every word is, so a scanned page is laid out like a printed
+  one, columns in place and blank cells blank, and read the same way:
+  on the release above as a 130 dpi scan, the 4B model got 78 of 80
+  values with their right dates, as on the printed copy. A page it can't
+  read with confidence (a phone photo, handwriting, a picture) goes to
+  an optional OCR model (Settings → Assistant → Model for reading scans;
+  `deepseek-ocr` on Ollama, about 6 GB, fits a 12 GB card), or else to
+  the vision model. An OCR model writes tables out as rows of cells and
+  can leave a blank cell out, which slides the values after it into the
+  wrong column; a file where that may have happened waits in Review.
+- **A progress bar** under the menu shows an upload going up, its
+  encryption, and then the reading: which pages of a long file, how far
+  along, and how many more files wait.
 - **Review** holds anything it isn't sure about: a name that doesn't match
   the profile (with a one-click move to the right person), a date that
   can't be right, a big table it only sampled, or a part it couldn't read.
@@ -109,8 +137,36 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
     assistant says what it notices and what to ask, as an AI's look at one
     image, with the radiologist's report as what counts.
 
-Backups, the model benchmark for this app and release builds are the last
-milestone.
+- **Phone and watch exports.** Drop an iPhone's Apple Health `export.zip`
+  (or just its `export.xml`), or a Google Takeout zip with Google Fit in it,
+  and the app imports it with its own code, no model, streaming it so a
+  several-gigabyte export is fine.
+  - Weight, blood pressure, glucose, temperature, resting heart rate and
+    the like are kept reading by reading (or as a daily average when a
+    sensor records them many times a day). Heart rate, steps, distance,
+    energy, exercise minutes and sleep become one value a day. Steps
+    counted by both a phone and a watch are counted once, not twice.
+  - Hospital records in Apple's export (if the person connected their
+    providers) bring in lab results with their ranges and flags, and add
+    allergies, active conditions and medications, and vaccinations to the
+    profile without overwriting anything entered by hand. Apple Watch ECGs
+    come in with their classification.
+  - Exports hold the whole history every time, so next month's adds only
+    what's new. A birth date or a name in it that isn't the profile's
+    holds it in Review. One Undo takes an import back out, profile
+    additions included.
+  - The assistant gets averages (overall and month by month) with every
+    lookup, so "what was my average blood pressure in September?" is
+    quoted, not worked out by a small model.
+- **Backups.** Settings → Backups downloads everything as one `.tar`
+  (it asks for your password again first), or writes one to a folder on a
+  schedule, keeping the newest few: point it at a NAS share mounted into
+  the container. A backup stays encrypted and opens only with the password
+  or recovery key the records had when it was made. To move to a new
+  server, choose **Restore from a backup** on its setup screen. Restoring
+  is only possible on a fresh install, so it can never overwrite records.
+- **A benchmark** for choosing a model: the real app, invented records,
+  rule-graded questions. See [docs/benchmark.md](docs/benchmark.md).
 
 ## Getting started
 
@@ -128,6 +184,17 @@ address and pick a model.
 | `MYMEDICAL_DATA` | `./data` (the image uses `/data`) | Data directory |
 | `MYMEDICAL_OLLAMA_URL` | unset | Fills in the Ollama address on a fresh install |
 | `MYMEDICAL_PASSWORD` | unset | Unlocks the records whenever the app starts |
+| `MYMEDICAL_BACKUP_DIR` | unset | The folder for automatic backups, until Settings changes it |
+
+### Images and CI
+
+`.github/workflows/images.yml` runs on every push to `main`: gofmt, vet and
+tests (with Poppler and GDCM installed, so the PDF and compressed-DICOM
+tests run), then builds the image for `linux/amd64` and `linux/arm64` and
+publishes it to GitHub's container registry as `ghcr.io/<owner>/<repo>`,
+tagged with the commit and `:latest`. A version tag (`git tag v1.2.3`)
+also publishes `:1.2.3` with the version stamped into the app. Pull
+requests run the same steps without publishing.
 
 The name lives in one place, `internal/brand`, so it can be renamed later.
 
@@ -178,7 +245,10 @@ internal/ingest     reading files: extraction, the reader's prompt, the checks f
 internal/recipes    import recipes: the Starlark sandbox, table fingerprints, drafting with the model
 internal/reference  MedlinePlus (bundled), RxNorm, FDA labels and LOINC, and the lookups over them
 internal/imaging    DICOM: tags, pixels (with GDCM for compressed images), rendering, invented test studies
+internal/healthexport  Apple Health and Google Fit exports, and hospital records in FHIR; invented test exports
+internal/pdfgen     simple text PDFs, and an invented 24-page records release, for tests
 internal/openai     an opt-in hosted provider in the OpenAI format
+internal/bench      the model benchmark
 internal/app        HTTP API, the background reader, Review, Activity, the assistant
 web/static          UI (plain JavaScript, no build step)
 ```

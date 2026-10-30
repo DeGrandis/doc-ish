@@ -27,6 +27,22 @@
       <label>Password again <input name="confirm" type="password" autocomplete="new-password" minlength="8" required></label>
       <button class="primary" type="submit">Set up</button>
       <p class="err small" role="alert"></p>
+      <button type="button" class="link small" id="to-restore">Moving here? Restore from a backup</button>
+    </form>
+
+    <form id="restore-form" hidden>
+      <h1 class="gate-title">Restore from a backup</h1>
+      <p class="muted">Choose a backup file (.tar) and enter the password the records had when it was made.</p>
+      <label>Backup file <input name="file" type="file" accept=".tar" required></label>
+      <label class="restore-pw">Password <input name="password" type="password" autocomplete="current-password"></label>
+      <div class="restore-rec" hidden>
+        <label>Recovery key <input name="recovery" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-…"></label>
+        <label>New password <input name="new_password" type="password" autocomplete="new-password" minlength="8"></label>
+      </div>
+      <button type="button" class="link small" id="restore-use-rec">Don't know that password? Use the recovery key</button>
+      <button class="primary" type="submit">Restore</button>
+      <p class="err small" role="alert"></p>
+      <button type="button" class="link small" id="restore-back">Back to set up</button>
     </form>
 
     <div id="recovery-show" hidden>
@@ -80,6 +96,7 @@
 
 <main>
   <div id="toast" role="status" hidden></div>
+  <div id="progress" hidden><span id="progress-text"></span><span class="progress-track"><i id="progress-fill"></i></span></div>
   <div id="update-bar" class="hint" hidden>__BRAND__ was updated while this page was open. <button type="button" class="link" id="update-reload">Reload</button> to use the new version.</div>
 
   <!-- Home: the chat, with the person's summary or an open file beside it -->
@@ -206,6 +223,7 @@
       <p class="wide small muted" id="reader-status"></p>
       <label class="ollama-only">Chat model <select name="chat_model"></select><span class="small muted">Needs tool use. Models without it are greyed out.</span></label>
       <label class="ollama-only">Model for images and scans <select name="vision_model"></select><span class="small muted">Needs vision. Can be the same model.</span></label>
+      <label class="ollama-only">Model for reading scans (OCR) <select name="ocr_model"></select><span class="small muted">Optional. A model made for reading documents, like deepseek-ocr, turns scanned pages and photos of paperwork into text first. More accurate on tables; a little slower.</span></label>
       <label class="ollama-only">Memory for each question <select name="num_ctx">
         <option value="8192">8k tokens</option><option value="16384">16k tokens</option><option value="32768">32k tokens</option><option value="65536">64k tokens</option>
       </select></label>
@@ -225,6 +243,20 @@
     <form id="person-add" class="row">
       <input name="name" placeholder="Name" aria-label="New person's name">
       <button type="submit">Add a person</button>
+    </form>
+
+    <h2 class="section-h">Backups</h2>
+    <p class="small muted">A backup is everything: profiles, files, values, chats. It stays encrypted, and opens only with the password (or recovery key) the records have when it's made. To move to a new server, set it up with "Restore from a backup".</p>
+    <form id="backup-form" class="row">
+      <input name="password" type="password" autocomplete="current-password" placeholder="Your password" aria-label="Your password" required>
+      <button type="submit">Download a backup</button>
+    </form>
+    <form id="auto-backup-form" class="grid">
+      <label class="wide">Back up automatically to this folder <input name="dir" placeholder="/backup"><span class="small muted">A folder the server can write to, like a NAS share mounted at /backup. Leave empty for no automatic backups.</span></label>
+      <label>Every <select name="every_hours"><option value="24">day</option><option value="168">week</option><option value="6">6 hours</option></select></label>
+      <label>Keep the newest <input name="keep" type="number" min="1" max="365"></label>
+      <p class="wide small muted" id="auto-backup-status"></p>
+      <div class="wide row"><button class="primary" type="submit">Save</button><button type="button" id="backup-now">Back up now</button></div>
     </form>
 
     <h2 class="section-h">Security</h2>

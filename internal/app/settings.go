@@ -23,6 +23,7 @@ type Settings struct {
 	OllamaFound bool   `json:"ollama_found"` // the address came from MYMEDICAL_OLLAMA_URL
 	ChatModel   string `json:"chat_model"`
 	VisionModel string `json:"vision_model"`
+	OCRModel    string `json:"ocr_model"` // optional: turns scanned pages and photos of documents into text first
 	NumCtx      int    `json:"num_ctx"`
 
 	RemoteURL         string `json:"remote_url"`
@@ -53,6 +54,7 @@ func (a *App) settings(st *store.Store) Settings {
 		OllamaURL:         st.Setting("ollama_url"),
 		ChatModel:         st.Setting("chat_model"),
 		VisionModel:       st.Setting("vision_model"),
+		OCRModel:          st.Setting("ocr_model"),
 		RemoteURL:         st.Setting("remote_url"),
 		RemoteModel:       st.Setting("remote_model"),
 		RemoteVisionModel: st.Setting("remote_vision_model"),
@@ -92,6 +94,15 @@ func (s Settings) visionModel() string {
 		return s.RemoteVisionModel
 	}
 	return s.VisionModel
+}
+
+// ocrModel is the model that reads scans into text, on this server's
+// Ollama only.
+func (s Settings) ocrModel() string {
+	if s.remote() {
+		return ""
+	}
+	return s.OCRModel
 }
 
 // ready says what's missing before the models can be used, or "".
@@ -179,6 +190,7 @@ func (a *App) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			"ollama_url":          req.OllamaURL,
 			"chat_model":          strings.TrimSpace(req.ChatModel),
 			"vision_model":        strings.TrimSpace(req.VisionModel),
+			"ocr_model":           strings.TrimSpace(req.OCRModel),
 			"num_ctx":             strconv.Itoa(req.NumCtx),
 			"remote_url":          req.RemoteURL,
 			"remote_model":        strings.TrimSpace(req.RemoteModel),

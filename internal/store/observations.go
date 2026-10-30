@@ -91,6 +91,23 @@ func (s *Store) Observations(personID int64, name string, limit int) ([]Observat
 	return s.observations(`person_id = ? ORDER BY observed, id LIMIT ?`, personID, limit)
 }
 
+// ObservationsIn lists every reading of one measurement (case-insensitive)
+// between two days, inclusive; either may be empty. No limit: a device
+// import can hold years of daily values.
+func (s *Store) ObservationsIn(personID int64, name, from, to string) ([]Observation, error) {
+	where := `person_id = ? AND name = ? COLLATE NOCASE`
+	args := []any{personID, name}
+	if from != "" {
+		where += ` AND substr(observed, 1, 10) >= ?`
+		args = append(args, from)
+	}
+	if to != "" {
+		where += ` AND substr(observed, 1, 10) <= ?`
+		args = append(args, to)
+	}
+	return s.observations(where+` ORDER BY observed, id`, args...)
+}
+
 // DocumentObservations lists the values read from one file.
 func (s *Store) DocumentObservations(docID int64) ([]Observation, error) {
 	return s.observations(`document_id = ? ORDER BY id`, docID)
@@ -98,11 +115,86 @@ func (s *Store) DocumentObservations(docID int64) ([]Observation, error) {
 
 // Latest returns the most recent value of one measurement, if any.
 func (s *Store) Latest(personID int64, name string) (*Observation, error) {
-	all, err := s.Observations(personID, name, 0)
+	all, err := s.observations(`person_id = ? AND name = ? COLLATE NOCASE ORDER BY observed DESC, id DESC LIMIT 1`, personID, name)
 	if err != nil || len(all) == 0 {
 		return nil, err
 	}
-	return &all[len(all)-1], nil
+	return &all[0], nil
+}
+
+// Measurement is one kind of value on record, summed up.
+type Measurement struct {
+	Name   string
+	Count  int
+	First  string // when it was first observed
+	Latest Observation
+}
+
+// Measurements lists every kind of value on a profile, in the order each
+// was first added, with its latest reading.
+func (s *Store) Measurements(personID int64) ([]Measurement, error) {
+	rows, err := s.db.Query(`SELECT name, count(*), min(observed) FROM observations WHERE person_id = ?
+		GROUP BY name COLLATE NOCASE ORDER BY min(id)`, personID)
+	if err != nil {
+		return nil, err
+	}
+	var out []Measurement
+	for rows.Next() {
+		var m Measurement
+		if err := rows.Scan(&m.Name, &m.Count, &m.First); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if l, err := s.Latest(personID, out[i].Name); err == nil && l != nil {
+			out[i].Latest = *l
+		}
+	}
+	return out, nil
+}
+
+// SourceObservationsTx lists a profile's values from one source (an
+// import), for skipping readings an earlier import already brought in.
+func SourceObservationsTx(tx *sql.Tx, personID int64, source string) ([]Observation, error) {
+	rows, err := tx.Query(`SELECT `+obsCols+` FROM observations WHERE person_id = ? AND source = ?`, personID, source)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Observation
+	for rows.Next() {
+		var o Observation
+		if err := rows.Scan(&o.ID, &o.PersonID, &o.Name, &o.Code, &o.Value, &o.ValueText, &o.Unit, &o.RefLow, &o.RefHigh,
+			&o.Flag, &o.Observed, &o.DocumentID, &o.Source, &o.Note, &o.Added); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
+// AddObservationsTx adds many values with one prepared statement.
+func AddObservationsTx(tx *sql.Tx, obs []Observation) error {
+	stmt, err := tx.Prepare(`INSERT INTO observations(person_id, name, code, value, value_text, unit, ref_low, ref_high, flag, observed, document_id, source, note, added)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	t := now()
+	for _, o := range obs {
+		if _, err := stmt.Exec(o.PersonID, o.Name, o.Code, o.Value, o.ValueText, o.Unit, o.RefLow, o.RefHigh, o.Flag, o.Observed,
+			o.DocumentID, o.Source, o.Note, t); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DeleteObservationsTx removes values by id.
