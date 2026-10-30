@@ -78,7 +78,35 @@ function typeTag(d) {
   return ext || "FILE";
 }
 const KINDS = ["lab", "imaging", "visit", "prescription", "vaccination", "bill", "device", "other"];
-const kindLabel = d => d.kind || (d.status === "new" ? "not read yet" : "");
+// statusTag is the badge for a file: what it is once read, else where it is.
+function statusTag(d) {
+  const tag = {
+    new: ["waiting to be read", "new"], reading: ["reading…", "reading"],
+    review: ["needs a look", "review"], failed: ["couldn't read", "failed"],
+  }[d.status];
+  const [label, cls] = tag || [d.kind || "stored", ""];
+  return `<span class="kind ${cls}">${esc(label)}</span>`;
+}
+
+// A value is out of range when flagged (H, L, A…) or outside its printed range.
+function outOfRange(v) {
+  const f = (v.flag || "").trim().toUpperCase();
+  if (f && f !== "N" && f !== "NORMAL") return true;
+  if (v.value == null) return false;
+  return (v.ref_low != null && v.value < v.ref_low) || (v.ref_high != null && v.value > v.ref_high);
+}
+function fmtNum(n) { return n == null ? "" : String(+(+n).toFixed(4)); }
+function valuesTable(vals) {
+  if (!vals || !vals.length) return "";
+  return `<div class="scroll"><table class="values"><thead><tr><th>Result</th><th class="num">Value</th><th>Range</th><th>Date</th></tr></thead><tbody>` +
+    vals.map(v => {
+      const bad = outOfRange(v);
+      const range = v.ref_low != null || v.ref_high != null ? `${fmtNum(v.ref_low)}–${fmtNum(v.ref_high)}` : "";
+      return `<tr class="${bad ? "out" : ""}"><td>${esc(v.name)}</td>
+        <td class="num">${esc(v.value != null ? fmtNum(v.value) : v.value_text)} <span class="muted">${esc(v.unit)}</span>${bad ? ` <span class="flag">${esc(v.flag || "out of range")}</span>` : ""}</td>
+        <td class="muted">${esc(range)}</td><td class="muted">${esc(v.observed || v.date || "")}</td></tr>`;
+    }).join("") + "</tbody></table></div>";
+}
 
 // ---------- gate: setup, sign in, recover ----------
 
@@ -212,9 +240,92 @@ async function selectPerson(id, quiet) {
 
 async function loadDocs() {
   state.docs = await api("GET", `/api/people/${state.person.id}/documents`);
-  const unread = state.docs.filter(d => d.status === "new").length;
-  $("#new-count").hidden = !unread;
-  $("#new-count").textContent = unread;
+  badges();
+  poll();
+}
+
+function badges() {
+  const n = s => state.docs.filter(d => d.status === s).length;
+  const look = n("review") + n("failed");
+  $("#review-count").hidden = !look;
+  $("#review-count").textContent = look;
+  $("#reading-dot").hidden = !(n("new") + n("reading"));
+}
+
+// ---------- the reader's progress ----------
+
+// While files are waiting to be read, check every couple of seconds; when
+// one finishes, refresh what's on screen and say so in the chat.
+let pollTimer = 0, polling = false;
+async function poll() {
+  clearTimeout(pollTimer);
+  if (polling || !state.person || $("#shell").hidden) return;
+  polling = true;
+  let s = null;
+  try { s = await api("GET", "/api/status"); } catch {}
+  polling = false;
+  if (!s) { pollTimer = setTimeout(poll, 15000); return; }
+  state.reader = s.reader || {};
+  const mine = s.counts[state.person.id] || {};
+  const busy = (mine.new || 0) + (mine.reading || 0);
+  const before = new Map(state.docs.map(d => [d.id, d.status]));
+  const local = {};
+  for (const d of state.docs) local[d.status] = (local[d.status] || 0) + 1;
+  const changed = busy || Object.keys({ ...mine, ...local }).some(k => (mine[k] || 0) !== (local[k] || 0));
+  if (changed) {
+    state.docs = await api("GET", `/api/people/${state.person.id}/documents`);
+    badges();
+    const finished = state.docs.filter(d => ["new", "reading"].includes(before.get(d.id)) && !["new", "reading"].includes(d.status));
+    for (const d of finished) announce(d);
+    refreshView();
+  }
+  readerNote(busy);
+  pollTimer = setTimeout(poll, busy ? 2000 : 20000);
+}
+
+// announce tells the chat what the reader made of a file.
+async function announce(d) {
+  if (document.body.dataset.tab !== "home") return;
+  let v;
+  try { v = await api("GET", `/api/documents/${d.id}`); } catch { return; }
+  const name = esc(v.title || v.filename);
+  const link = `<a href="#home/doc/${v.id}">${name}</a>`;
+  let html;
+  if (v.status === "done") {
+    const out = v.values.filter(outOfRange).length;
+    html = `Read ${link}${v.kind ? ` (${esc(v.kind)})` : ""}` +
+      (v.values.length ? `: ${v.values.length} value${v.values.length > 1 ? "s" : ""}${out ? `, <b class="neg">${out} out of range</b>` : ""}.` : ".");
+  } else if (v.status === "review") {
+    html = `Read ${link}, but it needs a look before it's filed. <a href="#review">Review</a>`;
+  } else {
+    html = `Couldn't read ${esc(v.filename)}: ${esc(v.review_reason)}`;
+  }
+  const el = addMsg("note", "");
+  el.innerHTML = html;
+}
+
+function readerNote(busy) {
+  const r = state.reader || {};
+  const el = $("#reader-note");
+  if (r.error) { el.hidden = false; el.innerHTML = `Reading is paused: ${esc(r.error)} <a href="#settings">Settings</a>`; }
+  else if (busy) { el.hidden = false; el.textContent = `Reading ${busy} file${busy > 1 ? "s" : ""}…`; }
+  else el.hidden = true;
+  const rs = $("#reader-status");
+  rs.textContent = r.error ? `Reading files is paused: ${r.error}` : r.reading ? "Reading a file now." : "";
+  rs.classList.toggle("neg", !!r.error);
+}
+
+// refreshView redraws whatever page is showing after files change.
+function refreshView() {
+  const tab = document.body.dataset.tab;
+  if (tab === "home") {
+    if (state.viewing) {
+      const d = state.docs.find(x => x.id === state.viewing);
+      if (d && $("#viewer").dataset.status !== d.status) openDoc(state.viewing);
+    } else renderSummary();
+  }
+  if (tab === "files") renderFiles();
+  if (tab === "review") renderReview();
 }
 
 // ---------- routing ----------
@@ -222,7 +333,7 @@ async function loadDocs() {
 function route() {
   const h = location.hash.slice(1) || "home";
   const [tab, sub, id] = h.split("/");
-  const known = ["home", "files", "profile", "settings"];
+  const known = ["home", "files", "review", "activity", "profile", "settings"];
   const t = known.includes(tab) ? tab : "home";
   $$(".tab").forEach(s => s.classList.toggle("on", s.id === t));
   $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
@@ -234,6 +345,8 @@ function route() {
     if (sub === "doc" && +id) openDoc(+id); else closeViewer();
   }
   if (t === "files") renderFiles();
+  if (t === "review") renderReview();
+  if (t === "activity") renderActivity();
   if (t === "profile") fillProfile();
   if (t === "settings") loadSettings();
 }
@@ -272,6 +385,10 @@ function renderSummary() {
     <div class="summary-more">
       ${meds ? `<div class="small muted">${meds} medication${meds > 1 ? "s" : ""}${p.weight ? ` · weight ${esc(p.weight.value)} ${esc(p.weight.unit)} on ${esc(p.weight.observed)}` : ""}</div>` :
         p.weight ? `<div class="small muted">Weight ${esc(p.weight.value)} ${esc(p.weight.unit)} on ${esc(p.weight.observed)}</div>` : ""}
+      ${(() => {
+        const n = state.docs.filter(d => d.status === "review" || d.status === "failed").length;
+        return n ? `<p class="hint"><a href="#review">${n} file${n > 1 ? "s" : ""}</a> need${n > 1 ? "" : "s"} a look before ${n > 1 ? "they're" : "it's"} filed.</p>` : "";
+      })()}
       ${empty ? `<p class="hint">The profile is empty. <a href="#profile">Fill it in</a>: allergies, conditions, medications. The assistant uses it in every answer.</p>` : ""}
       <span class="eyebrow">Recent files</span>
       ${recent.length ? `<ul class="doc-list">${recent.map(docItem).join("")}</ul>
@@ -281,7 +398,8 @@ function renderSummary() {
 }
 
 function docItem(d) {
-  return `<li><button data-doc="${d.id}"><span class="ficon">${esc(typeTag(d))}</span><span class="t">${esc(d.title || d.filename)}</span><span class="d">${esc(d.doc_date || fmtDate(d.added))}</span></button></li>`;
+  const right = d.status === "done" ? `<span class="d">${esc(d.doc_date || fmtDate(d.added))}</span>` : statusTag(d);
+  return `<li><button data-doc="${d.id}"><span class="ficon">${esc(typeTag(d))}</span><span class="t">${esc(d.title || d.filename)}</span>${right}</button></li>`;
 }
 
 $("#summary").addEventListener("click", e => {
@@ -304,8 +422,10 @@ async function openDoc(id) {
   $("#summary").hidden = true;
   const v = $("#viewer");
   v.hidden = false;
+  v.dataset.status = d.status;
   const src = `/api/documents/${id}/file`;
-  const sub = [d.kind, d.doc_date, fmtSize(d.size), d.filename !== (d.title || d.filename) ? d.filename : ""].filter(Boolean).join(" · ");
+  const sub = [d.kind, d.doc_date, d.provider, fmtSize(d.size), d.filename !== (d.title || d.filename) ? d.filename : ""].filter(Boolean).join(" · ");
+  const found = d.status === "review" && d.result ? (d.result.observations || []) : d.values;
   v.innerHTML = `
     <div class="viewer-head">
       <span class="ficon">${esc(typeTag(d))}</span>
@@ -313,8 +433,11 @@ async function openDoc(id) {
       <a class="icon-btn" href="${src}?download=1" title="Download" aria-label="Download"><svg viewBox="0 0 20 20"><path d="M10 3v10M5 9l5 5 5-5M4 17h12"/></svg></a>
       <button class="icon-btn" id="viewer-close" title="Close" aria-label="Close"><svg viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
+    ${statusBox(d)}
+    ${d.summary ? `<p class="viewer-summary">${esc(d.summary)}</p>` : ""}
+    ${found && found.length ? `<span class="eyebrow">${d.status === "review" ? "Found, not filed yet" : "Values"}</span>${valuesTable(found)}` : ""}
+    ${d.result && d.result.medications && d.result.medications.length ? `<span class="eyebrow">Medications mentioned</span><ul class="meds">${d.result.medications.map(m => `<li>${esc(m.name)}${m.detail ? ` <span class="muted">${esc(m.detail)}</span>` : ""}</li>`).join("")}</ul>` : ""}
     <div class="viewer-body" id="viewer-body"></div>
-    ${d.summary ? `<p class="small">${esc(d.summary)}</p>` : ""}
     <details class="viewer-meta">
       <summary>Details</summary>
       <form id="doc-form" class="grid">
@@ -322,7 +445,7 @@ async function openDoc(id) {
         <label>Kind <select name="kind"><option value=""></option>${KINDS.map(k => `<option ${k === d.kind ? "selected" : ""}>${k}</option>`).join("")}</select></label>
         <label>Date <input name="doc_date" type="date" value="${esc(d.doc_date)}"></label>
         ${state.people.length > 1 ? `<label>Belongs to <select name="person_id">${state.people.map(p => `<option value="${p.id}" ${p.id === d.person_id ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select></label>` : ""}
-        <div class="wide row"><button class="primary" type="submit">Save</button><span class="spacer"></span><button type="button" class="danger" id="doc-delete">Delete file</button></div>
+        <div class="wide row"><button class="primary" type="submit">Save</button>${["done", "review", "failed"].includes(d.status) ? `<button type="button" data-reread="${d.id}">Read again</button>` : ""}<span class="spacer"></span><button type="button" class="danger" id="doc-delete">Delete file</button></div>
         <p class="wide small muted">Added ${esc(fmtDate(d.added))} · SHA-256 <span class="mono">${esc(d.sha256.slice(0, 16))}…</span></p>
       </form>
     </details>`;
@@ -330,15 +453,110 @@ async function openDoc(id) {
   const m = d.mime || "";
   if (m.startsWith("image/") && m !== "image/heic") body.innerHTML = `<img src="${src}" alt="${esc(d.title || d.filename)}">`;
   else if (m === "application/pdf") body.innerHTML = `<iframe src="${src}" title="${esc(d.filename)}"></iframe>`;
-  else if (m === "text/csv" || m.startsWith("text/") || m.includes("json") || m.includes("xml")) {
+  else if (!m.includes("officedocument") && (m.startsWith("text/") || m.includes("json") || m.includes("xml"))) {
     body.innerHTML = `<p class="small muted">Loading…</p>`;
     const text = await (await fetch(src)).text();
     if (state.viewing !== id) return;
     body.innerHTML = m === "text/csv" ? csvTable(text) : `<pre>${esc(text.slice(0, 200000))}</pre>`;
   } else {
-    body.innerHTML = `<p class="hint small">${m === "application/dicom" ? "DICOM images get a viewer in a later version." : "This kind of file can't be shown here yet."} You can download it, and the assistant will be able to read it once reading files is in.</p>`;
+    body.innerHTML = `<p class="small muted">${m === "application/dicom" ? "Images get a viewer in a later version." : "This kind of file can't be shown here."} Download it to open it.</p>`;
   }
 }
+
+// statusBox says where a file stands, with what can be done about it.
+function statusBox(d) {
+  if (d.status === "new") return `<p class="status-box">Waiting to be read.${state.reader && state.reader.error ? ` Reading is paused: ${esc(state.reader.error)}` : ""}</p>`;
+  if (d.status === "reading") return `<p class="status-box"><span class="typing"></span> Reading it now…</p>`;
+  if (d.status === "failed") return `<div class="status-box bad"><p>Couldn't read it: ${esc(d.review_reason)}</p><div class="row"><button data-reread="${d.id}">Read again</button></div></div>`;
+  if (d.status !== "review") return "";
+  const better = moveTarget(d);
+  return `<div class="status-box look">
+    <p><b>Needs a look before it's filed.</b></p>
+    <ul>${d.review_reason.split("\n").filter(Boolean).map(r => `<li>${esc(r)}</li>`).join("")}</ul>
+    <div class="row">
+      <button class="primary" data-accept="${d.id}">Looks right, file it</button>
+      ${better ? `<button data-move="${d.id}" data-to="${better.id}">Move to ${esc(better.name)}</button>` : ""}
+      <button data-reread="${d.id}">Read again</button>
+    </div></div>`;
+}
+
+// moveTarget is the other profile the reader thinks a file belongs to.
+function moveTarget(d) {
+  return state.people.find(p => p.id !== d.person_id && d.review_reason.includes(`like ${p.name}'s`));
+}
+
+// The buttons in status boxes and Review cards work the same everywhere.
+async function docAction(e) {
+  const b = e.target.closest("[data-accept],[data-reread],[data-move]");
+  if (!b) return false;
+  b.disabled = true;
+  try {
+    if (b.dataset.accept) {
+      const v = await api("POST", `/api/documents/${b.dataset.accept}/accept`);
+      toast(`Filed${v.values.length ? ` with ${v.values.length} value${v.values.length > 1 ? "s" : ""}` : ""}`);
+    } else if (b.dataset.reread) {
+      await api("POST", `/api/documents/${b.dataset.reread}/read`);
+      toast("Reading it again");
+    } else if (b.dataset.move) {
+      const to = state.people.find(p => p.id === +b.dataset.to);
+      await api("PATCH", `/api/documents/${b.dataset.move}`, { person_id: to.id });
+      await api("POST", `/api/documents/${b.dataset.move}/accept`).catch(() => {});
+      toast(`Moved to ${to.name} and filed`);
+      if (state.viewing === +b.dataset.move) location.hash = "#home";
+    }
+  } catch (err) { toast(err.message, true); b.disabled = false; return true; }
+  await loadDocs();
+  if (state.viewing && document.body.dataset.tab === "home") openDoc(state.viewing);
+  refreshView();
+  return true;
+}
+document.addEventListener("click", e => { if (e.target.closest("#viewer, #review-list")) docAction(e); });
+
+// ---------- Review ----------
+
+async function renderReview() {
+  $("#review-title").textContent = `Review · ${state.person.name}`;
+  const list = await api("GET", `/api/people/${state.person.id}/review`);
+  const el = $("#review-list");
+  if (!list.length) { el.innerHTML = `<p class="muted">Nothing waiting. Every file is read and filed.</p>`; return; }
+  el.innerHTML = list.map(d => {
+    const vals = d.result ? d.result.observations || [] : [];
+    return `<article class="review-card">
+      <div class="viewer-head"><span class="ficon">${esc(typeTag(d))}</span>
+        <div class="spacer"><h2><a href="#home/doc/${d.id}">${esc(d.title || d.filename)}</a></h2>
+        <div class="sub">${esc([d.kind, d.doc_date, d.provider, d.filename].filter(Boolean).join(" · "))}</div></div></div>
+      ${statusBox(d)}
+      ${d.summary ? `<p class="viewer-summary">${esc(d.summary)}</p>` : ""}
+      ${vals.length ? valuesTable(vals.slice(0, 12)) + (vals.length > 12 ? `<p class="small muted">and ${vals.length - 12} more</p>` : "") : ""}
+    </article>`;
+  }).join("");
+}
+
+// ---------- Activity ----------
+
+async function renderActivity() {
+  $("#activity-title").textContent = `Activity · ${state.person.name}`;
+  const list = await api("GET", `/api/people/${state.person.id}/activity`);
+  const who = { you: "You", reader: "Reader", assistant: "Assistant" };
+  $("#activity-list").innerHTML = list.length ? `<ul class="act-list">${list.map(a => `<li class="${a.undone ? "undone" : ""}">
+      <span class="when">${esc(new Date(a.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }))}</span>
+      <span class="actor ${esc(a.actor)}">${esc(who[a.actor] || a.actor)}</span>
+      <span class="what">${esc(a.summary)}${a.undone ? ` <span class="muted">(undone)</span>` : ""}</span>
+      ${a.can_undo ? `<button data-undo="${a.id}">Undo</button>` : ""}
+    </li>`).join("")}</ul>` : `<p class="muted">Nothing yet.</p>`;
+}
+$("#activity-list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-undo]");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await api("POST", `/api/activity/${b.dataset.undo}/undo`);
+    toast("Undone");
+    state.person = await api("GET", `/api/people/${state.person.id}`);
+    await loadDocs();
+    renderActivity();
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
 
 function csvTable(text) {
   const rows = text.split(/\r?\n/).filter(Boolean).slice(0, 500).map(parseCSVLine);
@@ -545,7 +763,7 @@ async function upload(files) {
   toast(parts.join(". ") + ".", bad.length > 0);
   if (document.body.dataset.tab === "home") {
     if (!state.viewing) renderSummary();
-    if (added.length) addMsg("note", `Added ${added.map(a => a.filename).join(", ")}. Reading files comes in the next version; for now they're stored, encrypted, and listed.`);
+    if (added.length) addMsg("note", `Added ${added.map(a => a.filename).join(", ")}. Reading ${added.length > 1 ? "them" : "it"} now…`);
   }
   if (document.body.dataset.tab === "files") renderFiles();
 }
@@ -584,11 +802,12 @@ $("#files-drop").addEventListener("keydown", e => { if (e.key === "Enter" || e.k
 
 async function renderFiles() {
   $("#files-title").textContent = `${state.person.name}'s files`;
+  readerNote(state.docs.filter(d => d.status === "new" || d.status === "reading").length);
   const q = $("#files-q").value.trim();
   const docs = q ? await api("GET", `/api/people/${state.person.id}/documents?q=${encodeURIComponent(q)}`) : state.docs;
   $("#files-table tbody").innerHTML = docs.map(d => `<tr data-doc="${d.id}">
     <td><div class="fn"><span class="ficon">${esc(typeTag(d))}</span><span>${esc(d.title || d.filename)}</span></div></td>
-    <td>${kindLabel(d) ? `<span class="kind ${d.kind ? "" : "new"}">${esc(kindLabel(d))}</span>` : ""}</td>
+    <td>${statusTag(d)}</td>
     <td>${esc(d.doc_date)}</td>
     <td>${esc(fmtDate(d.added))}</td>
     <td class="num">${esc(fmtSize(d.size))}</td></tr>`).join("");

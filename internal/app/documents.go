@@ -3,7 +3,9 @@ package app
 import (
 	"bufio"
 	"bytes"
+	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime"
@@ -106,6 +108,20 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			}
 			results = append(results, res)
 		}
+		var added []string
+		for _, res := range results {
+			if res.Document != nil && !res.Duplicate {
+				added = append(added, res.Filename)
+			}
+		}
+		if len(added) > 0 {
+			what := added[0]
+			if len(added) > 1 {
+				what = fmt.Sprintf("%d files", len(added))
+			}
+			st.Log(pid, "you", "Added "+what, nil)
+			a.wakeReader()
+		}
 		writeJSON(w, results)
 	})
 }
@@ -156,7 +172,7 @@ func (a *App) handleDocument(w http.ResponseWriter, r *http.Request) {
 			storeErr(w, err)
 			return
 		}
-		writeJSON(w, d)
+		writeJSON(w, viewOf(st, d))
 	})
 }
 
@@ -182,12 +198,16 @@ func (a *App) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 			storeErr(w, err)
 			return
 		}
-		if req.PersonID != nil {
-			if _, err := st.Person(*req.PersonID); err != nil {
+		prev := snapshot(d)
+		summary := "Edited " + d.Filename
+		if req.PersonID != nil && *req.PersonID != d.PersonID {
+			to, err := st.Person(*req.PersonID)
+			if err != nil {
 				storeErr(w, err)
 				return
 			}
-			d.PersonID = *req.PersonID
+			d.PersonID = to.ID
+			summary = "Moved " + d.Filename + " to " + to.Name
 		}
 		set := func(dst *string, v *string) {
 			if v != nil {
@@ -198,11 +218,22 @@ func (a *App) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 		set(&d.Title, req.Title)
 		set(&d.DocDate, req.DocDate)
 		set(&d.Summary, req.Summary)
-		if err := st.UpdateDocument(d); err != nil {
+		err = st.Tx(func(tx *sql.Tx) error {
+			if err := store.UpdateDocumentTx(tx, d); err != nil {
+				return err
+			}
+			// Values read from the file belong to whoever the file does.
+			if err := store.MoveDocumentObservationsTx(tx, d.ID, d.PersonID); err != nil {
+				return err
+			}
+			// Logged on the profile it came from, where it can be undone.
+			return store.LogDocTx(tx, prev.PersonID, d.ID, "you", summary, undoOp{Op: "document", DocumentID: d.ID, Prev: &prev})
+		})
+		if err != nil {
 			storeErr(w, err)
 			return
 		}
-		writeJSON(w, d)
+		writeJSON(w, viewOf(st, d))
 	})
 }
 
@@ -223,6 +254,7 @@ func (a *App) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		files.Delete(d.Blob)
+		st.LogDoc(d.PersonID, d.ID, "you", "Deleted "+d.Filename, nil)
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 }

@@ -8,7 +8,7 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 > It is not a doctor, and the assistant can be wrong. Talk to a clinician
 > about anything that matters; in an emergency, call emergency services.
 
-## What works today (milestone 1)
+## What works today (milestones 1 and 2)
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -21,14 +21,27 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 - **Drop anything.** Drag files onto the window (or use the paperclip, or
   the camera on a phone) and they're stored on the profile you're viewing.
   The same file twice is noticed.
-- **Open files beside the chat.** PDFs, images, CSVs and text open next to
-  the assistant.
-- **Chat** with a model on your own Ollama, which sees the profile, the list
-  of files and the latest measurements.
+- **It reads what you drop.** In the background, one file at a time, a
+  model on your Ollama works out what each file is (lab results, imaging,
+  a visit note, a prescription…), its date, provider and whose it is, and
+  copies out every result with its unit, range and flag. Text PDFs go
+  through Poppler; scans and photos go to a vision model; DICOM files are
+  described from their own tags; Word files, CSVs, XML and text are read
+  directly.
+- **Review** holds anything it isn't sure about: a name that doesn't match
+  the profile (with a one-click move to the right person), a date that
+  can't be right, a big table it only sampled, or a part it couldn't read.
+  Nothing from those files is filed until you say so.
+- **Activity** lists every change, by you or the reader, and the latest
+  change to anything can be undone.
+- **Open files beside the chat**, with what was read from them: the
+  summary, every value (out-of-range ones flagged), and medications named.
+- **Chat** with a model on your own Ollama, which sees the profile, each
+  file's summary and the latest value of every measurement.
 
-Reading the files themselves, putting lab values into a timeline, charts,
-the DICOM viewer, reusable import recipes and the bundled medical reference
-are the next milestones.
+Charts, opening files from the chat, the DICOM viewer, reusable import
+recipes for big tables, and the bundled medical reference are the next
+milestones.
 
 ## Getting started
 
@@ -68,7 +81,8 @@ internal/brand      the product name
 internal/vault      password and recovery key -> the data key
 internal/store      SQLite, encrypted with the data key
 internal/blobs      original files, encrypted with age
-internal/ollama     the user's Ollama: models, streaming chat
-internal/app        HTTP API and the assistant
+internal/ollama     the user's Ollama: models, streaming chat, structured answers
+internal/ingest     reading files: extraction, the reader's prompt, the checks for Review
+internal/app        HTTP API, the background reader, Review, Activity, the assistant
 web/static          UI (plain JavaScript, no build step)
 ```

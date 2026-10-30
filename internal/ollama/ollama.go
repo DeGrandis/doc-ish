@@ -188,6 +188,26 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 	return all.String(), ctx.Err()
 }
 
+// ChatJSON asks for one answer shaped by a JSON schema (Ollama's
+// structured outputs) and returns it unparsed.
+func (c *Client) ChatJSON(ctx context.Context, r ChatRequest, schema any) (string, error) {
+	body := map[string]any{
+		"model":    r.Model,
+		"messages": r.Messages,
+		"stream":   false,
+		"think":    false,
+		"format":   schema,
+		"options":  map[string]any{"temperature": 0, "num_ctx": r.NumCtx},
+	}
+	var out struct {
+		Message Message `json:"message"`
+	}
+	if err := c.do(ctx, "POST", "/api/chat", body, &out); err != nil {
+		return "", err
+	}
+	return out.Message.Content, nil
+}
+
 func apiError(resp *http.Response) error {
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	var e struct {

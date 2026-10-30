@@ -1,7 +1,11 @@
 package app
 
 import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,7 +99,16 @@ func (a *App) handleUpdatePerson(w http.ResponseWriter, r *http.Request) {
 		if req.Color == "" {
 			req.Color = old.Color
 		}
-		if err := st.UpdatePerson(req); err != nil {
+		prevProfile, _ := json.Marshal(old.Profile)
+		raw := json.RawMessage(prevProfile)
+		err = st.Tx(func(tx *sql.Tx) error {
+			if err := store.UpdatePersonTx(tx, req); err != nil {
+				return err
+			}
+			return store.LogTx(tx, id, "you", "Edited "+req.Name+"'s profile",
+				undoOp{Op: "profile", PersonID: id, PrevName: old.Name, PrevProfile: &raw})
+		})
+		if err != nil {
 			storeErr(w, err)
 			return
 		}
@@ -175,12 +188,23 @@ func (a *App) handleAddObservation(w http.ResponseWriter, r *http.Request) {
 			storeErr(w, err)
 			return
 		}
-		oid, err := st.AddObservation(o)
+		err := st.Tx(func(tx *sql.Tx) error {
+			oid, err := store.AddObservationTx(tx, o)
+			if err != nil {
+				return err
+			}
+			o.ID = oid
+			v := o.ValueText
+			if o.Value != nil {
+				v = strconv.FormatFloat(*o.Value, 'f', -1, 64)
+			}
+			return store.LogTx(tx, id, "you", fmt.Sprintf("Noted %s %s %s on %s", strings.ToLower(o.Name), v, o.Unit, o.Observed),
+				undoOp{Op: "observation", ObservationIDs: []int64{oid}})
+		})
 		if err != nil {
 			storeErr(w, err)
 			return
 		}
-		o.ID = oid
 		writeJSON(w, o)
 	})
 }

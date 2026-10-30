@@ -13,7 +13,6 @@ import (
 	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
-	_ "github.com/ncruces/go-sqlite3/embed"
 	_ "github.com/ncruces/go-sqlite3/vfs/adiantum"
 )
 
@@ -117,9 +116,61 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 `
 
+// Every change since the first schema, applied once each. Columns are
+// added only when missing, so this is safe to run on every open.
+var columns = []struct{ table, col, def string }{
+	{"documents", "text", "TEXT NOT NULL DEFAULT ''"},          // extracted text, for search and the assistant
+	{"documents", "extracted", "TEXT NOT NULL DEFAULT ''"},     // the reader's JSON result
+	{"documents", "review_reason", "TEXT NOT NULL DEFAULT ''"}, // why it needs a look, or why reading failed
+	{"documents", "provider", "TEXT NOT NULL DEFAULT ''"},
+	{"observations", "flag", "TEXT NOT NULL DEFAULT ''"}, // H, L, abnormal… as printed
+	{"activity", "document_id", "INTEGER"},               // the file a change was about
+}
+
+const activitySchema = `
+CREATE TABLE IF NOT EXISTS activity (
+  id        INTEGER PRIMARY KEY,
+  person_id INTEGER REFERENCES people(id) ON DELETE CASCADE,
+  at        TEXT NOT NULL,
+  actor     TEXT NOT NULL,       -- you, reader, assistant
+  summary   TEXT NOT NULL,
+  undo      TEXT NOT NULL DEFAULT '',
+  undone    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS activity_person ON activity(person_id, id);
+CREATE INDEX IF NOT EXISTS observations_document ON observations(document_id);
+`
+
 func (s *Store) migrate() error {
-	_, err := s.db.Exec(schema)
+	if _, err := s.db.Exec(schema + activitySchema); err != nil {
+		return err
+	}
+	for _, c := range columns {
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name = ?`, c.table, c.col).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := s.db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.col + ` ` + c.def); err != nil {
+				return fmt.Errorf("add %s.%s: %w", c.table, c.col, err)
+			}
+		}
+	}
+	_, err := s.db.Exec(`CREATE INDEX IF NOT EXISTS activity_document ON activity(document_id, id)`)
 	return err
+}
+
+// Tx runs f in a transaction, committing if it returns nil.
+func (s *Store) Tx(f func(tx *sql.Tx) error) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if err := f(tx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func now() string { return time.Now().UTC().Format(time.RFC3339) }

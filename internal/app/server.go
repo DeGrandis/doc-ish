@@ -4,6 +4,7 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -43,6 +44,11 @@ type App struct {
 	sessMu   sync.Mutex
 	sessions map[string]time.Time // token -> last use
 	fails    map[string]failure   // remote IP -> wrong passwords
+
+	wake     chan struct{} // nudges the file reader
+	stop     context.CancelFunc
+	readerMu sync.Mutex
+	reader   readerState
 }
 
 type failure struct {
@@ -53,7 +59,10 @@ type failure struct {
 const sessionIdle = 30 * 24 * time.Hour
 
 func New(cfg Config) (*App, error) {
-	a := &App{cfg: cfg, sessions: map[string]time.Time{}, fails: map[string]failure{}}
+	a := &App{cfg: cfg, sessions: map[string]time.Time{}, fails: map[string]failure{}, wake: make(chan struct{}, 1)}
+	ctx, stop := context.WithCancel(context.Background())
+	a.stop = stop
+	go a.readLoop(ctx)
 	if cfg.Password != "" && vault.Exists(cfg.DataDir) {
 		key, err := vault.Unlock(cfg.DataDir, cfg.Password)
 		if err != nil {
@@ -94,6 +103,8 @@ func (a *App) unlock(key []byte) error {
 		return err
 	}
 	a.st, a.files = st, files
+	st.ResetReading() // a file left half-read when the app stopped goes back in line
+	a.wakeReader()
 	return nil
 }
 
@@ -113,8 +124,11 @@ func (a *App) unlocked() bool {
 	return a.st != nil
 }
 
-// Close locks the app on shutdown.
-func (a *App) Close() { a.lock() }
+// Close stops the reader and locks the app on shutdown.
+func (a *App) Close() {
+	a.stop()
+	a.lock()
+}
 
 // Handler is the whole HTTP surface.
 func (a *App) Handler() http.Handler {
@@ -149,6 +163,12 @@ func (a *App) Handler() http.Handler {
 	auth("PATCH /api/documents/{id}", a.handleUpdateDocument)
 	auth("DELETE /api/documents/{id}", a.handleDeleteDocument)
 	auth("GET /api/documents/{id}/file", a.handleDocumentFile)
+	auth("POST /api/documents/{id}/accept", a.handleAccept)
+	auth("POST /api/documents/{id}/read", a.handleReread)
+	auth("GET /api/people/{id}/review", a.handleReview)
+	auth("GET /api/people/{id}/activity", a.handleActivity)
+	auth("POST /api/activity/{id}/undo", a.handleUndo)
+	auth("GET /api/status", a.handleStatus)
 
 	auth("GET /api/people/{id}/chats", a.handleChats)
 	auth("GET /api/chats/{id}", a.handleChatMessages)

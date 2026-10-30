@@ -192,7 +192,7 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 - Answer from the records below. Never invent results, dates, medications or documents. If something isn't in the records, say so.
 - You may explain what results and medical terms mean, point out values outside their reference range, say what you notice, what could explain it and what might be worth asking a doctor about. You are not their doctor and this is not a diagnosis. If something could be urgent or serious, say so plainly and suggest contacting a clinician.
 - Be concise and concrete: short paragraphs or bullet lists, values with units, dates as YYYY-MM-DD.
-- You can see the list of files below, but not their contents yet.
+- Below are the files with a short summary of each, and the latest value of every measurement. You can't open a file's full text yet; if the answer needs more than the summaries and values show, say so.
 
 `)
 	pr := p.Profile
@@ -251,7 +251,20 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 			if d.DocDate != "" {
 				s += ", dated " + d.DocDate
 			}
-			s += ", added " + d.Added[:10]
+			if d.Provider != "" {
+				s += ", from " + d.Provider
+			}
+			switch d.Status {
+			case store.StatusNew, store.StatusReading:
+				s += " (not read yet)"
+			case store.StatusReview:
+				s += " (read, waiting for the user to check it)"
+			case store.StatusFailed:
+				s += " (couldn't be read)"
+			}
+			if d.Summary != "" {
+				s += ": " + d.Summary
+			}
 			b.WriteString(s + "\n")
 		}
 	}
@@ -281,6 +294,12 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 			s := fmt.Sprintf("- %s: %s %s on %s", o.Name, v, o.Unit, o.Observed)
 			if o.RefLow != nil || o.RefHigh != nil {
 				s += fmt.Sprintf(" (reference %s–%s)", fnum(o.RefLow), fnum(o.RefHigh))
+			}
+			if o.OutOfRange() {
+				s += " OUT OF RANGE"
+				if o.Flag != "" {
+					s += " (flag " + o.Flag + ")"
+				}
 			}
 			if count[k] > 1 {
 				s += fmt.Sprintf("; %d readings in all", count[k])

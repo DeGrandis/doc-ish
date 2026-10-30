@@ -71,8 +71,10 @@
 </header>
 <nav id="tabs" aria-label="Pages">
   <button data-tab="home" aria-label="Home"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z"/></svg><span class="lbl">Home</span></button>
-  <button data-tab="files" aria-label="Files"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2h7l4 4v12H5zM12 2v4h4M8 10h5M8 13h5"/></svg><span class="lbl">Files</span><span id="new-count" class="pill" hidden></span></button>
+  <button data-tab="files" aria-label="Files"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2h7l4 4v12H5zM12 2v4h4M8 10h5M8 13h5"/></svg><span class="lbl">Files</span><span id="reading-dot" class="reading-dot" hidden></span></button>
+  <button data-tab="review" aria-label="Review"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h7M14 14l1.5 1.5L18 13"/></svg><span class="lbl">Review</span><span id="review-count" class="pill" hidden></span></button>
   <button data-tab="profile" aria-label="Profile"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="7" r="3.5"/><path d="M3.5 17.5c.8-3.4 3.4-5 6.5-5s5.7 1.6 6.5 5"/></svg><span class="lbl">Profile</span></button>
+  <button data-tab="activity" aria-label="Activity"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l3 2"/></svg><span class="lbl">Activity</span></button>
 </nav>
 
 <main>
@@ -116,11 +118,26 @@
     <div class="row files-bar">
       <input id="files-q" type="search" placeholder="Search files" aria-label="Search files">
     </div>
+    <p class="hint small" id="reader-note" hidden></p>
     <div class="scroll"><table id="files-table">
       <thead><tr><th>File</th><th>Kind</th><th>Date</th><th>Added</th><th class="num">Size</th></tr></thead>
       <tbody></tbody>
     </table></div>
     <p class="muted small" id="files-empty" hidden>Nothing here yet.</p>
+  </section>
+
+  <!-- Review: files the reader wasn't sure about -->
+  <section id="review" class="tab">
+    <h1 class="page-title" id="review-title">Review</h1>
+    <p class="muted small">Files the reader wasn't sure about. Nothing from them is in the records until you file it.</p>
+    <div id="review-list"></div>
+  </section>
+
+  <!-- Activity: every change, with undo -->
+  <section id="activity" class="tab">
+    <h1 class="page-title" id="activity-title">Activity</h1>
+    <p class="muted small">Every change, by you or the reader. Most can be undone.</p>
+    <div id="activity-list"></div>
   </section>
 
   <!-- Profile: what a new doctor's office asks -->
@@ -167,6 +184,7 @@
         <span class="row"><input name="ollama_url" placeholder="http://192.168.1.20:11434" class="grow"><button type="button" id="ai-check">Check</button></span>
         <span class="small muted" id="ai-status"></span>
       </label>
+      <p class="wide small muted" id="reader-status"></p>
       <label>Chat model <select name="chat_model"></select><span class="small muted">Needs tool use. Models without it are greyed out.</span></label>
       <label>Model for images and scans <select name="vision_model"></select><span class="small muted">Needs vision. Can be the same model.</span></label>
       <label>Memory for each question <select name="num_ctx">

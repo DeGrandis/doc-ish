@@ -13,9 +13,10 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 RUN mkdir -p /out/data
 
 # On a small standard base rather than scratch: app platforms expect /proc,
-# /tmp and /etc/passwd, and Alpine brings the CA certificates. Later
-# milestones add PDF rendering, OCR and DICOM tools here.
+# /tmp and /etc/passwd, and Alpine brings the CA certificates. Poppler
+# reads and renders PDFs for the file reader.
 FROM alpine:3.24 AS app
+RUN apk add --no-cache poppler-utils
 COPY --from=build /out/mymedical /mymedical
 COPY --from=build --chown=65532:65532 /out/data /data
 USER 65532:65532
