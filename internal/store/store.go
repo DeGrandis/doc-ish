@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS observations_document ON observations(document_id);
 `
 
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(schema + activitySchema + imagingSchema); err != nil {
+	if _, err := s.db.Exec(schema + activitySchema + imagingSchema + followUpSchema); err != nil {
 		return err
 	}
 	for _, c := range columns {

@@ -130,6 +130,18 @@ var assistantTools = []ollama.Tool{
 			"date":       describe("string", "YYYY-MM-DD; today if not said"),
 			"note":       str,
 		}, "name", "value", "unit")},
+	{Name: "add_follow_up", Description: "Add something to what's coming up for the person: a recheck, appointment, scan or vaccine they mention or ask to be reminded of.",
+		Parameters: obj(map[string]any{
+			"what": describe("string", "short: \"Repeat chest CT\", \"Flu shot\""),
+			"due":  describe("string", "YYYY-MM-DD when a date is said, else empty"),
+			"when": describe("string", "the timing as said, when it isn't a date: \"in three months\""),
+		}, "what")},
+	{Name: "set_follow_up", Description: "Mark one of the follow-ups listed in the context done or set aside (dismissed), open it again, or change its due date, when the user says so.",
+		Parameters: obj(map[string]any{
+			"id":     describe("integer", "the follow-up's id, from [f:N] in the context"),
+			"status": map[string]any{"type": "string", "enum": []string{"done", "dismissed", "open", ""}},
+			"due":    describe("string", "a new due date, YYYY-MM-DD, or empty to leave it"),
+		}, "id")},
 	{Name: "update_profile", Description: "Save something about the person to their profile: add or remove an allergy, condition, medication, surgery, family history item, vaccination or doctor, or set born (YYYY-MM-DD), sex, height, blood type, lifestyle, emergency contact, insurance or notes. Weight goes to note_value instead.",
 		Parameters: obj(map[string]any{
 			"field":  map[string]any{"type": "string", "enum": profileFields},
@@ -200,6 +212,10 @@ func (e *toolEnv) dispatch(name string, a map[string]any) (string, error) {
 		return e.labTest(sArg(a, "name"))
 	case "describe_image":
 		return e.describeImage(iArg(a, "id"))
+	case "add_follow_up":
+		return e.addFollowUp(sArg(a, "what"), sArg(a, "due"), sArg(a, "when"))
+	case "set_follow_up":
+		return e.setFollowUp(iArg(a, "id"), sArg(a, "status"), sArg(a, "due"))
 	case "update_profile":
 		return e.updateProfile(sArg(a, "field"), sArg(a, "action"), sArg(a, "value"), sArg(a, "name"), sArg(a, "detail"), sArg(a, "since"))
 	}
@@ -241,7 +257,7 @@ func iArg(a map[string]any, k string) int64 {
 	case float64:
 		return int64(v)
 	case string:
-		n, _ := strconv.ParseInt(strings.Trim(strings.TrimSpace(v), "[]doc:"), 10, 64)
+		n, _ := strconv.ParseInt(strings.Trim(strings.TrimSpace(v), "[]docf:"), 10, 64)
 		return n
 	}
 	return 0

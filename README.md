@@ -56,6 +56,21 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 - **A progress bar** under the menu shows an upload going up, its
   encryption, and then the reading: which pages of a long file, how far
   along, and how many more files wait.
+- **Follow-ups.** The reader picks out what a file says should happen
+  later ("Recheck blood count and iron studies in about six months",
+  "Follow-up CT in 12 months") and works out the due date from the
+  note's own date. They're listed as **Coming up** on the home page and
+  the timeline, overdue ones marked, with Done and Not needed buttons;
+  you or the assistant can add your own ("remind me about the dentist in
+  three months"). A later value, scan, visit or vaccination that shows
+  one done closes it, saying what showed it (a recheck of iron studies
+  closes when iron or ferritin results dated after it arrive), and undoing
+  that file opens it again.
+- **Timeline**: a person's history on one line, newest first: every
+  file by the date it's about (with its out-of-range values), the dates in
+  the profile (a medication started, a diagnosis, a surgery, a vaccine),
+  and follow-ups done, by year, with filters for visits, labs, imaging,
+  medications and vaccines.
 - **Review** holds anything it isn't sure about: a name that doesn't match
   the profile (with a one-click move to the right person), a date that
   can't be right, a big table it only sampled, or a part it couldn't read.

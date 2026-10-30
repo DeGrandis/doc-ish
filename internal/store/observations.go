@@ -229,3 +229,19 @@ func DocumentObservationIDsTx(tx *sql.Tx, docID int64) ([]int64, error) {
 	}
 	return ids, rows.Err()
 }
+
+// FlaggedByDocument lists the values read from a person's files that are
+// out of range or flagged, by file.
+func (s *Store) FlaggedByDocument(personID int64) (map[int64][]Observation, error) {
+	obs, err := s.observations(`person_id = ? AND document_id IS NOT NULL AND (flag != '' OR ref_low IS NOT NULL OR ref_high IS NOT NULL) ORDER BY observed, id`, personID)
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64][]Observation{}
+	for _, o := range obs {
+		if o.OutOfRange() {
+			out[*o.DocumentID] = append(out[*o.DocumentID], o)
+		}
+	}
+	return out, nil
+}

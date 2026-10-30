@@ -568,6 +568,18 @@ func merge(req Request, parts []partResult) Result {
 				out.Medications = append(out.Medications, m)
 			}
 		}
+		for _, f := range r.FollowUps {
+			// Each note's follow-ups count from that note's date.
+			if f.From == "" {
+				f.From = r.DocDate
+			}
+			k := strings.ToLower(f.What + "|" + f.From)
+			if f.What == "" || seen["follow:"+k] {
+				continue
+			}
+			seen["follow:"+k] = true
+			out.FollowUps = append(out.FollowUps, f)
+		}
 		for _, q := range r.Questions {
 			questions = append(questions, p.pages()+": "+q)
 		}

@@ -225,7 +225,11 @@ func fileExport(st *store.Store, d store.Document, ex *healthexport.Export) erro
 		if len(changes) > 0 {
 			summary += "; added to the profile: " + strings.Join(changes, "; ")
 		}
-		u := undoOp{Op: "read", DocumentID: d.ID, Prev: &prev, AllValues: true}
+		closed, err := closeFollowUps(tx, d.PersonID) // hospital labs may be the recheck someone was waiting for
+		if err != nil {
+			return err
+		}
+		u := undoOp{Op: "read", DocumentID: d.ID, Prev: &prev, AllValues: true, ReopenIDs: closed}
 		if len(changes) > 0 {
 			u.PersonID, u.PrevName, u.PrevProfile = p.ID, p.Name, &raw
 		}

@@ -292,6 +292,7 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 - When the user asks how something is trending, or for a graph or chart, call chart, then describe the trend in a sentence or two.
 - When the user asks to see, pull up or open a file, call open_file.
 - When the user tells you a measurement ("weight 182 today", "BP 128/82 this morning"), save it with note_value right away, then confirm in one short line. When they tell you about an allergy, condition, medication, surgery, family history, vaccination or doctor, or their birth date, sex, height or blood type, save it with update_profile. Every change shows to them with an Undo button, so don't ask "shall I save it?" first. When they give several things at once (two family members, three medications), call the tool once for each.
+- "Coming up" lists follow-ups from their files (a recheck, a repeat scan, a visit) and ones they added. When asked what's due or coming up, answer from it. When they ask to be reminded of something, or mention an appointment or test to come, add it with add_follow_up; when they say one is done or no longer needed, call set_follow_up.
 - Only say you saved, added or updated something after the tool answered "Saved". If you didn't call a tool, nothing was saved; never claim otherwise.
 - If the user asks you to help fill in their profile, interview them like a friendly intake nurse: look at which profile sections are empty, ask about one or two at a time, save each answer as you get it, and move on. Let them skip anything.
 - Don't paste ids like [doc:12] into answers; name files by title and date.
@@ -363,6 +364,19 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 		b.WriteString("\n## Files (newest first; the [doc:N] id is for your tools)\n")
 		for _, d := range docs {
 			b.WriteString("- " + docLine(d) + "\n")
+		}
+	}
+
+	if fs, _ := st.FollowUps(p.ID); len(fs) > 0 {
+		var open []string
+		for _, f := range fs {
+			if f.Status == store.FollowUpOpen {
+				open = append(open, "- "+followLine(f, today))
+			}
+		}
+		if len(open) > 0 {
+			b.WriteString("\n## Coming up (follow-ups from files or the user; [f:N] is for set_follow_up)\n")
+			b.WriteString(strings.Join(open, "\n") + "\n")
 		}
 	}
 

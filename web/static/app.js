@@ -269,7 +269,10 @@ async function selectPerson(id, quiet) {
 }
 
 async function loadDocs() {
-  state.docs = await api("GET", `/api/people/${state.person.id}/documents`);
+  [state.docs, state.follows] = await Promise.all([
+    api("GET", `/api/people/${state.person.id}/documents`),
+    api("GET", `/api/people/${state.person.id}/followups`),
+  ]);
   badges();
   poll();
 }
@@ -304,7 +307,7 @@ async function poll() {
   for (const d of state.docs) local[d.status] = (local[d.status] || 0) + 1;
   const changed = busy || Object.keys({ ...mine, ...local }).some(k => (mine[k] || 0) !== (local[k] || 0));
   if (changed) {
-    state.docs = await api("GET", `/api/people/${state.person.id}/documents`);
+    await loadDocs();
     badges();
     const finished = state.docs.filter(d => ["new", "reading"].includes(before.get(d.id)) && !["new", "reading"].includes(d.status));
     for (const d of finished) announce(d);
@@ -389,6 +392,7 @@ function refreshView() {
   }
   if (tab === "files") renderFiles();
   if (tab === "review") renderReview();
+  if (tab === "timeline") renderTimeline();
 }
 
 // ---------- routing ----------
@@ -396,7 +400,7 @@ function refreshView() {
 function route() {
   const h = location.hash.slice(1) || "home";
   const [tab, sub, id] = h.split("/");
-  const known = ["home", "files", "review", "activity", "profile", "settings"];
+  const known = ["home", "timeline", "files", "review", "activity", "profile", "settings"];
   const t = known.includes(tab) ? tab : "home";
   $$(".tab").forEach(s => s.classList.toggle("on", s.id === t));
   $$("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
@@ -407,6 +411,7 @@ function route() {
     renderSummary();
     if (sub === "doc" && +id) openDoc(+id); else closeViewer();
   }
+  if (t === "timeline") renderTimeline();
   if (t === "files") renderFiles();
   if (t === "review") renderReview();
   if (t === "activity") renderActivity();
@@ -453,6 +458,11 @@ function renderSummary() {
         return n ? `<p class="hint"><a href="#review">${n} file${n > 1 ? "s" : ""}</a> need${n > 1 ? "" : "s"} a look before ${n > 1 ? "they're" : "it's"} filed.</p>` : "";
       })()}
       ${empty ? `<p class="hint">The profile is empty. <a href="#profile">Fill it in</a>: allergies, conditions, medications. The assistant uses it in every answer.</p>` : ""}
+      ${(() => {
+        const open = (state.follows || []).filter(f => f.status === "open");
+        return open.length ? `<span class="eyebrow">Coming up</span><ul class="follow-list">${open.slice(0, 3).map(followItem).join("")}</ul>
+          <a class="small" href="#timeline">${open.length > 3 ? `All ${open.length} on the timeline` : "Timeline"}</a>` : "";
+      })()}
       <span class="eyebrow">Recent files</span>
       ${recent.length ? `<ul class="doc-list">${recent.map(docItem).join("")}</ul>
         ${state.docs.length > recent.length ? `<a class="small" href="#files">All ${state.docs.length} files</a>` : ""}`
@@ -470,6 +480,112 @@ $("#summary").addEventListener("click", e => {
   if (b) location.hash = `#home/doc/${b.dataset.doc}`;
 });
 
+// ---------- follow-ups and the timeline ----------
+
+const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+
+// span says how far off a number of days is: "3 weeks", "4 months".
+function span(days) {
+  days = Math.abs(days);
+  if (days < 14) return `${days} day${days === 1 ? "" : "s"}`;
+  if (days < 61) return `${Math.round(days / 7)} weeks`;
+  if (days < 700) return `${Math.round(days / 30.4)} months`;
+  return `${Math.round(days / 365)} years`;
+}
+
+// dueText is when a follow-up is due, from today: "in 3 months", "overdue
+// by 2 weeks", or its timing as written when there's no date.
+function dueText(f) {
+  if (!f.due) return f.when ? esc(f.when) : "no date";
+  const days = Math.round((new Date(f.due) - new Date(today())) / 864e5);
+  if (days === 0) return "due today";
+  return (days > 0 ? `in ${span(days)}` : `overdue by ${span(days)}`) + ` · ${esc(f.due)}`;
+}
+
+function followItem(f) {
+  const late = f.due && f.due < today();
+  const from = f.document_id ? ` · <a href="#home/doc/${f.document_id}">from ${f.from ? `a note of ${esc(f.from)}` : "a file"}</a>` : "";
+  return `<li class="follow${late ? " late" : ""}">
+    <div class="fw"><span class="t">${esc(f.what)}</span><span class="d">${dueText(f)}${from}</span></div>
+    <button class="icon-btn" data-follow="${f.id}" data-set="done" title="Done" aria-label="Mark done"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg></button>
+    <button class="icon-btn" data-follow="${f.id}" data-set="dismissed" title="Not needed" aria-label="Set aside"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 6l8 8M14 6l-8 8"/></svg></button>
+  </li>`;
+}
+
+// Done or set aside, from the home page or the timeline.
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-follow]");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    const f = await api("PATCH", `/api/followups/${b.dataset.follow}`, { status: b.dataset.set });
+    state.follows = await api("GET", `/api/people/${state.person.id}/followups`);
+    toast(b.dataset.set === "done" ? `Done: ${f.what}` : `Set aside: ${f.what}. Undo it in Activity.`);
+    refreshView();
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
+
+let tlFilter = "";
+const tlGroups = {
+  visit: e => e.type === "file" && ["visit", "prescription"].includes(e.kind),
+  lab: e => e.type === "file" && e.kind === "lab" || e.type === "followup",
+  imaging: e => e.type === "file" && e.kind === "imaging",
+  meds: e => ["medication", "condition", "surgery"].includes(e.type) || e.type === "file" && e.kind === "prescription",
+  vaccine: e => e.type === "vaccination" || e.type === "file" && e.kind === "vaccination",
+};
+const tlTags = { medication: "medication", condition: "diagnosis", surgery: "surgery", vaccination: "vaccine", followup: "follow-up" };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+async function renderTimeline() {
+  $("#timeline-title").textContent = `Timeline · ${state.person.name}`;
+  let tl;
+  try { tl = await api("GET", `/api/people/${state.person.id}/timeline`); }
+  catch (err) { $("#tl-list").innerHTML = `<p class="muted">${esc(err.message)}</p>`; return; }
+  state.follows = await api("GET", `/api/people/${state.person.id}/followups`);
+  $("#tl-coming").innerHTML = tl.coming.length ? tl.coming.map(followItem).join("")
+    : `<li class="muted small">Nothing yet. Rechecks and follow-ups the files mention show here, and anything you add.</li>`;
+  const show = tlFilter ? tl.events.filter(tlGroups[tlFilter]) : tl.events;
+  if (!show.length) { $("#tl-list").innerHTML = `<p class="muted">Nothing here yet.</p>`; return; }
+  let out = "", year = "";
+  for (const e of show) {
+    const y = e.date.slice(0, 4);
+    if (y !== year) { out += `${year ? "</ol>" : ""}<h2 class="tl-year">${esc(y)}</h2><ol class="tl">`; year = y; }
+    const day = e.date.length >= 10 ? `${MONTHS[+e.date.slice(5, 7) - 1]} ${+e.date.slice(8, 10)}` : "";
+    const tag = e.type === "file" ? (e.kind || "file") : tlTags[e.type];
+    const title = e.doc_id ? `<button type="button" class="link tl-title" data-doc="${e.doc_id}">${esc(e.title)}</button>` : `<span class="tl-title">${esc(e.title)}</span>`;
+    out += `<li class="tl-item t-${esc(e.type)}">
+      <span class="tl-date">${day}</span>
+      <div class="tl-body">
+        <div class="tl-head">${title}<span class="tag">${esc(tag)}</span>${e.status === "review" ? `<span class="tag look">needs a look</span>` : ""}</div>
+        ${e.detail ? `<p class="tl-detail">${esc(e.detail)}</p>` : ""}
+        ${(e.flags || []).length ? `<div class="tl-flags">${e.flags.map(f => `<span class="chip warn">${esc(f)}</span>`).join("")}${e.more_flags ? `<span class="small muted">+${e.more_flags} more</span>` : ""}</div>` : ""}
+      </div>
+    </li>`;
+  }
+  $("#tl-list").innerHTML = out + "</ol>";
+}
+
+$("#tl-filter").addEventListener("click", e => {
+  const b = e.target.closest("button[data-f]");
+  if (!b) return;
+  tlFilter = b.dataset.f;
+  $$("#tl-filter button").forEach(x => x.classList.toggle("on", x === b));
+  renderTimeline();
+});
+$("#tl-list").addEventListener("click", e => {
+  const b = e.target.closest("[data-doc]");
+  if (b) location.hash = `#home/doc/${b.dataset.doc}`;
+});
+$("#follow-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const f = e.target;
+  try {
+    await api("POST", `/api/people/${state.person.id}/followups`, { what: f.what.value, due: f.due.value });
+    f.reset();
+    renderTimeline();
+  } catch (err) { toast(err.message, true); }
+});
+
 // ---------- Home: viewer ----------
 
 async function openDoc(id) {
@@ -481,6 +597,7 @@ async function openDoc(id) {
     if (owner) { await selectPerson(owner.id, true); renderSummary(); }
   }
   if (stopViewer) { stopViewer(); stopViewer = null; }
+  if (!state.viewing) chatScroll = scrollY; // on a phone the file covers the chat; Back returns to this spot
   state.viewing = id;
   $(".home").classList.add("viewing");
   $("#summary").hidden = true;
@@ -492,6 +609,7 @@ async function openDoc(id) {
   const found = d.status === "review" && d.result ? (d.result.observations || []) : d.values;
   v.innerHTML = `
     <div class="viewer-head">
+      <button class="viewer-back" id="viewer-back" type="button"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4l-6 6 6 6"/></svg>Chat</button>
       <span class="ficon">${esc(typeTag(d))}</span>
       <div class="spacer"><h2>${esc(d.title || d.filename)}</h2><div class="sub">${esc(sub)}</div></div>
       <a class="icon-btn" href="${src}?download=1" title="Download" aria-label="Download"><svg viewBox="0 0 20 20"><path d="M10 3v10M5 9l5 5 5-5M4 17h12"/></svg></a>
@@ -700,18 +818,26 @@ function parseCSVLine(line) {
   return out;
 }
 
-let stopViewer = null;
+let stopViewer = null, chatScroll = null;
 function closeViewer() {
   if (stopViewer) { stopViewer(); stopViewer = null; }
+  const wasViewing = state.viewing;
   state.viewing = 0;
   $(".home").classList.remove("viewing");
   $("#viewer").hidden = true;
   $("#viewer").innerHTML = "";
   $("#summary").hidden = false;
+  // Going to #home scrolls to the section of that name; put the chat back
+  // where it was instead.
+  if (wasViewing && chatScroll !== null) {
+    const y = chatScroll;
+    requestAnimationFrame(() => scrollTo(0, y));
+  }
+  chatScroll = null;
 }
 
 $("#viewer").addEventListener("click", async e => {
-  if (e.target.closest("#viewer-close")) { location.hash = "#home"; return; }
+  if (e.target.closest("#viewer-close, #viewer-back")) { location.hash = "#home"; return; }
   if (e.target.closest("#doc-delete")) {
     const d = state.docs.find(x => x.id === state.viewing);
     if (!confirm(`Delete ${d ? d.filename : "this file"}? This can't be undone.`)) return;
@@ -759,6 +885,7 @@ async function loadChats() {
 }
 
 function renderChatEmpty() {
+  $("#chat-latest").hidden = true;
   const p = state.person;
   const first = esc(p.name.split(" ")[0]);
   const ideas = [
@@ -787,8 +914,22 @@ async function showChat(id) {
       warnUnsaved(el, m.content, !!(m.extra && (m.extra.changes || []).length), !!(m.extra && (m.extra.opened || []).length));
     }
   }
-  log.scrollTop = log.scrollHeight;
+  toBottom(true);
 }
+
+const DOTS = `<span class="dots" aria-label="Thinking"><i></i><i></i><i></i></span>`;
+
+// The log follows new text only while you're at the bottom of it; scrolled
+// up, it stays put and "latest" takes you back.
+const chatLog = $("#chat-log");
+const nearBottom = () => chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 80;
+function toBottom(force) {
+  if (force || nearBottom()) chatLog.scrollTop = chatLog.scrollHeight;
+  latestBtn();
+}
+function latestBtn() { $("#chat-latest").hidden = nearBottom(); }
+chatLog.addEventListener("scroll", latestBtn, { passive: true });
+$("#chat-latest").addEventListener("click", () => chatLog.scrollTo({ top: chatLog.scrollHeight, behavior: "smooth" }));
 
 // An assistant message is its text, then what came with it: the lookups
 // it made, charts, and changes with their Undo buttons.
@@ -800,7 +941,7 @@ function addMsg(role, text) {
   if (role === "assistant") el.innerHTML = `<div class="body">${md(text)}</div><div class="extras"></div>`;
   else el.textContent = text;
   log.appendChild(el);
-  log.scrollTop = log.scrollHeight;
+  toBottom(role === "user");
   return el;
 }
 
@@ -854,7 +995,7 @@ function addChart(el, spec) {
   $(".extras", el).appendChild(host);
 }
 
-const SERIES_COLORS = ["var(--chart-line)", "var(--accent)", "#5b8def", "#3fb68b"];
+const SERIES_COLORS = ["var(--chart-line)", "var(--bubble-me)", "#3fb68b", "#b58a3c"];
 
 // chartSVG draws readings over time: lines with dots, the reference range
 // as a band (one series only), out-of-range readings in red.
@@ -917,6 +1058,7 @@ $("#chat-log").addEventListener("click", async e => {
 // afterChange refreshes what a saved value or profile edit shows up in.
 async function afterChange() {
   state.person = await api("GET", `/api/people/${state.person.id}`);
+  state.follows = await api("GET", `/api/people/${state.person.id}/followups`);
   await loadPeople();
   renderPicker();
   if (document.body.dataset.tab === "home" && !state.viewing) renderSummary();
@@ -947,9 +1089,9 @@ async function send() {
   addMsg("user", text);
   const out = addMsg("assistant", "");
   const body = $(".body", out);
-  body.innerHTML = `<span class="typing"></span>`;
+  body.innerHTML = DOTS;
   let reply = "", queued = false, changed = false, opened = false;
-  const paint = () => { queued = false; body.innerHTML = md(reply) || `<span class="typing"></span>`; $("#chat-log").scrollTop = $("#chat-log").scrollHeight; };
+  const paint = () => { queued = false; body.innerHTML = md(reply) || DOTS; toBottom(); };
   try {
     const r = await fetch(`/api/people/${state.person.id}/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -983,6 +1125,7 @@ async function send() {
         if (ev.open) { opened = true; location.hash = `#home/doc/${ev.open}`; }
         if (ev.error) throw new Error(ev.error);
       }
+      toBottom();
     }
     paint();
     if (!reply.trim()) body.innerHTML = $(".extras", out).children.length ? "" : `<span class="muted">No answer.</span>`;

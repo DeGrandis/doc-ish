@@ -16,16 +16,17 @@ import (
 
 // Result is what the reader made of a file.
 type Result struct {
-	Kind         string   `json:"kind"`
-	Title        string   `json:"title"`
-	DocDate      string   `json:"doc_date"`
-	Provider     string   `json:"provider"`
-	PatientName  string   `json:"patient_name"`
-	Summary      string   `json:"summary"`
-	Observations []Value  `json:"observations"`
-	Medications  []Med    `json:"medications"`
-	Confidence   string   `json:"confidence"` // high, medium, low
-	Questions    []string `json:"questions"`
+	Kind         string     `json:"kind"`
+	Title        string     `json:"title"`
+	DocDate      string     `json:"doc_date"`
+	Provider     string     `json:"provider"`
+	PatientName  string     `json:"patient_name"`
+	Summary      string     `json:"summary"`
+	Observations []Value    `json:"observations"`
+	Medications  []Med      `json:"medications"`
+	FollowUps    []FollowUp `json:"follow_ups"`
+	Confidence   string     `json:"confidence"` // high, medium, low
+	Questions    []string   `json:"questions"`
 }
 
 // Value is one result or measurement as printed.
@@ -44,6 +45,15 @@ type Value struct {
 type Med struct {
 	Name   string `json:"name"`
 	Detail string `json:"detail"`
+}
+
+// FollowUp is something the file says should happen later: a recheck,
+// a repeat scan, a follow-up visit.
+type FollowUp struct {
+	What string `json:"what"`
+	When string `json:"when"` // as written: "in about six months"
+	Due  string `json:"due"`  // YYYY-MM-DD: printed, or worked out from When
+	From string `json:"from"` // the date of the note that said it (the app fills it in)
 }
 
 // Kinds are the kinds of file the reader sorts into.
@@ -75,10 +85,15 @@ var schema = map[string]any{
 			"properties": map[string]any{"name": map[string]any{"type": "string"}, "detail": map[string]any{"type": "string"}},
 			"required":   []string{"name", "detail"},
 		}},
+		"follow_ups": map[string]any{"type": "array", "items": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"what": map[string]any{"type": "string"}, "when": map[string]any{"type": "string"}, "due": map[string]any{"type": "string"}},
+			"required":   []string{"what", "when", "due"},
+		}},
 		"confidence": map[string]any{"type": "string", "enum": []string{"high", "medium", "low"}},
 		"questions":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 	},
-	"required": []string{"kind", "title", "doc_date", "provider", "patient_name", "summary", "observations", "medications", "confidence", "questions"},
+	"required": []string{"kind", "title", "doc_date", "provider", "patient_name", "summary", "observations", "medications", "follow_ups", "confidence", "questions"},
 }
 
 const instructions = `You read medical files for a family's private records app and describe them as JSON.
@@ -91,6 +106,7 @@ const instructions = `You read medical files for a family's private records app 
 - summary: two or three plain sentences about what it is and what it shows.
 - observations: every measured result or vital sign, one entry each, copied exactly: the test name, value (a number, or null with value_text for results like "Negative" or "<0.5"), unit, the reference range as ref_low/ref_high when printed (null when not), flag as printed (H, L, A, High, Low…, else empty), and date (YYYY-MM-DD) when it differs from doc_date. Never compute or guess values. For a table of readings, one entry per reading. When a table has a column for each date (a cumulative report: "Test | 03/10/2025 | 09/12/2025 | …"), every filled cell is its own observation, dated by its column: three dates mean up to three entries for each test, not one. An empty cell means no result that day.
 - medications: any medications named, with dose and directions in detail.
+- follow_ups: what the file says should happen later: a recheck or repeat test, a follow-up visit, a scan to repeat, a referral, a vaccine due. what: short, like "Repeat chest CT" or "Recheck blood count and iron". when: the timing exactly as written ("in about six months", "in 12 months", "next fall"). due: YYYY-MM-DD only when a date is printed, else empty. Not medications to keep taking, and not things already done. Usually empty.
 - confidence: high if the file is clear and you read it fully; medium if parts were unclear; low if you can't tell what it is.
 - questions: only doubts about reading the file itself: a part you couldn't read, a value or name you weren't sure you read right, a table you couldn't line up. Results that are high or low are NOT questions (the app flags them from the ranges), and neither is a missing range. Usually empty.
 If the file isn't medical, say so in summary, use kind "other" and confidence "low".`
@@ -257,6 +273,17 @@ func Parse(raw string) (Result, error) {
 		}
 	}
 	r.Medications = meds
+	fs := r.FollowUps[:0]
+	for _, f := range r.FollowUps {
+		if f.What = clip(f.What, 160); f.What != "" {
+			f.When, f.Due, f.From = clip(f.When, 80), cleanDate(f.Due), cleanDate(f.From)
+			fs = append(fs, f)
+		}
+		if len(fs) == 20 {
+			break
+		}
+	}
+	r.FollowUps = fs
 	qs := r.Questions[:0]
 	for _, q := range r.Questions {
 		if q = clip(q, 300); q != "" {

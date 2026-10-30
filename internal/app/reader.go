@@ -409,8 +409,11 @@ type undoOp struct {
 	PersonID       int64            `json:"person_id,omitempty"`
 	PrevName       string           `json:"prev_name,omitempty"`
 	PrevProfile    *json.RawMessage `json:"prev_profile,omitempty"`
-	AllValues      bool             `json:"all_values,omitempty"` // remove every value read from the file (too many to list)
-	RecipeID       int64            `json:"recipe_id,omitempty"`  // a recipe approved by this change
+	AllValues      bool             `json:"all_values,omitempty"`    // remove every value read from the file (too many to list)
+	RecipeID       int64            `json:"recipe_id,omitempty"`     // a recipe approved by this change
+	FollowUpIDs    []int64          `json:"followup_ids,omitempty"`  // follow-ups added by this change
+	ReopenIDs      []int64          `json:"reopen_ids,omitempty"`    // follow-ups this change closed
+	PrevFollowUp   *store.FollowUp  `json:"prev_followup,omitempty"` // a follow-up as it was
 }
 
 // file saves what was read: filed with its values when nothing needs a
@@ -439,10 +442,16 @@ func (a *App) file(st *store.Store, d store.Document, res ingest.Result, cont in
 		if err := store.UpdateDocumentTx(tx, d); err != nil {
 			return err
 		}
-		var ids []int64
+		var ids, follows, closed []int64
 		if d.Status == store.StatusDone {
 			var err error
 			if ids, err = addValues(tx, d, res); err != nil {
+				return err
+			}
+			if follows, err = addFollowUps(tx, d, res); err != nil {
+				return err
+			}
+			if closed, err = closeFollowUps(tx, d.PersonID); err != nil {
 				return err
 			}
 		}
@@ -457,7 +466,11 @@ func (a *App) file(st *store.Store, d store.Document, res ingest.Result, cont in
 		if d.Status == store.StatusReview {
 			summary += ". Needs a look"
 		}
-		return store.LogDocTx(tx, d.PersonID, d.ID, "reader", summary, undoOp{Op: "read", DocumentID: d.ID, Prev: &prev, ObservationIDs: ids})
+		if n := len(follows); n > 0 {
+			summary += fmt.Sprintf(", %d follow-up%s", n, plural(n))
+		}
+		return store.LogDocTx(tx, d.PersonID, d.ID, "reader", summary,
+			undoOp{Op: "read", DocumentID: d.ID, Prev: &prev, ObservationIDs: ids, FollowUpIDs: follows, ReopenIDs: closed})
 	})
 }
 

@@ -141,12 +141,27 @@ func (a *App) handleAccept(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				return err
 			}
+			oldFollows, err := store.DocumentFollowUpIDsTx(tx, id)
+			if err != nil {
+				return err
+			}
+			if err := store.DeleteFollowUpsTx(tx, oldFollows); err != nil {
+				return err
+			}
+			follows, err := addFollowUps(tx, d, res)
+			if err != nil {
+				return err
+			}
+			closed, err := closeFollowUps(tx, d.PersonID)
+			if err != nil {
+				return err
+			}
 			what := d.Title
 			if what == "" {
 				what = d.Filename
 			}
 			return store.LogDocTx(tx, d.PersonID, d.ID, "you", fmt.Sprintf("Checked %s: filed %d value%s", what, len(ids), plural(len(ids))),
-				undoOp{Op: "accept", DocumentID: id, Prev: &prev, ObservationIDs: ids})
+				undoOp{Op: "accept", DocumentID: id, Prev: &prev, ObservationIDs: ids, FollowUpIDs: follows, ReopenIDs: closed})
 		})
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
@@ -273,6 +288,12 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 	if err := store.DeleteObservationsTx(tx, u.ObservationIDs); err != nil {
 		return err
 	}
+	if err := store.DeleteFollowUpsTx(tx, u.FollowUpIDs); err != nil {
+		return err
+	}
+	if err := store.ReopenFollowUpsTx(tx, u.ReopenIDs); err != nil {
+		return err
+	}
 	if u.AllValues {
 		ids, err := store.DocumentObservationIDsTx(tx, u.DocumentID)
 		if err != nil {
@@ -293,6 +314,11 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 	switch u.Op {
 	case "observation":
 		return nil
+	case "followup":
+		if u.PrevFollowUp != nil {
+			return store.UpdateFollowUpTx(tx, *u.PrevFollowUp)
+		}
+		return nil
 	case "read", "accept", "document", "recipe":
 		d, err := store.DocumentTx(tx, u.DocumentID)
 		if err != nil {
@@ -308,6 +334,9 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 			return err
 		}
 		if err := store.MoveDocumentObservationsTx(tx, d.ID, d.PersonID); err != nil {
+			return err
+		}
+		if err := store.MoveDocumentFollowUpsTx(tx, d.ID, d.PersonID); err != nil {
 			return err
 		}
 		if u.PrevProfile == nil {

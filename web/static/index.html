@@ -88,6 +88,7 @@
 </header>
 <nav id="tabs" aria-label="Pages">
   <button data-tab="home" aria-label="Home"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z"/></svg><span class="lbl">Home</span></button>
+  <button data-tab="timeline" aria-label="Timeline"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 2.5v15"/><circle cx="6" cy="6" r="2"/><circle cx="6" cy="14" r="2"/><path d="M10.5 6H17M10.5 14H17"/></svg><span class="lbl">Timeline</span></button>
   <button data-tab="files" aria-label="Files"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2h7l4 4v12H5zM12 2v4h4M8 10h5M8 13h5"/></svg><span class="lbl">Files</span><span id="reading-dot" class="reading-dot" hidden></span></button>
   <button data-tab="review" aria-label="Review"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h7M14 14l1.5 1.5L18 13"/></svg><span class="lbl">Review</span><span id="review-count" class="pill" hidden></span></button>
   <button data-tab="profile" aria-label="Profile"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="7" r="3.5"/><path d="M3.5 17.5c.8-3.4 3.4-5 6.5-5s5.7 1.6 6.5 5"/></svg><span class="lbl">Profile</span></button>
@@ -111,6 +112,8 @@
         </div>
         <p class="hosted-note" id="hosted-note" hidden></p>
         <div class="chat-log" id="chat-log" aria-live="polite"></div>
+        <button type="button" class="chat-latest" id="chat-latest" hidden><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M5 11l5 5 5-5"/></svg>Latest</button>
+        <div class="chat-dock">
         <form class="chat-box" id="chat-form">
           <input type="file" id="attach-input" multiple hidden>
           <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
@@ -119,6 +122,7 @@
           <textarea id="chat-input" rows="1" placeholder="Ask, or jot something down…" aria-label="Message"></textarea>
           <button type="submit" class="icon-btn send" id="chat-send" aria-label="Send"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5"/></svg></button>
         </form>
+        </div>
       </div>
 
       <aside class="side" id="side">
@@ -154,6 +158,30 @@
   </section>
 
   <!-- Activity: every change, with undo -->
+  <!-- Timeline: what's coming up, then everything by date -->
+  <section id="timeline" class="tab">
+    <h1 class="page-title" id="timeline-title">Timeline</h1>
+    <p class="muted small">What's coming up, then files, medications, diagnoses and vaccines by date.</p>
+    <div class="tl-coming">
+      <span class="eyebrow">Coming up</span>
+      <ul class="follow-list" id="tl-coming"></ul>
+      <form class="follow-add" id="follow-form">
+        <input name="what" placeholder="Add: a recheck, an appointment, a vaccine…" aria-label="What's coming up" required>
+        <input name="due" type="date" aria-label="Due">
+        <button type="submit">Add</button>
+      </form>
+    </div>
+    <div class="seg tl-filter" id="tl-filter" role="group" aria-label="Show">
+      <button type="button" data-f="" class="on">All</button>
+      <button type="button" data-f="visit">Visits</button>
+      <button type="button" data-f="lab">Labs</button>
+      <button type="button" data-f="imaging">Imaging</button>
+      <button type="button" data-f="meds">Medications &amp; conditions</button>
+      <button type="button" data-f="vaccine">Vaccines</button>
+    </div>
+    <div id="tl-list"></div>
+  </section>
+
   <section id="activity" class="tab">
     <h1 class="page-title" id="activity-title">Activity</h1>
     <p class="muted small">Every change, by you or the reader. Most can be undone.</p>
