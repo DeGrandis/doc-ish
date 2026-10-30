@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -77,6 +79,7 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ChatID  int64  `json:"chat_id"`
 		Message string `json:"message"`
+		Viewing int64  `json:"viewing"` // the file open beside the chat
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -127,12 +130,12 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if err := st.AddMessage(req.ChatID, "user", req.Message); err != nil {
+		if err := st.AddMessage(req.ChatID, "user", req.Message, nil); err != nil {
 			storeErr(w, err)
 			failed = true
 			return
 		}
-		system = buildSystemPrompt(st, p)
+		system = buildSystemPrompt(st, p) + viewingSection(st, pid, req.Viewing)
 	})
 	if failed {
 		return
@@ -163,13 +166,14 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
-	send(map[string]int64{"chat_id": req.ChatID})
-	reply, err := client.Chat(r.Context(), ollama.ChatRequest{Model: set.ChatModel, Messages: msgs, NumCtx: set.NumCtx},
-		func(t string) { send(map[string]string{"t": t}) })
-	if strings.TrimSpace(reply) != "" {
+	send(map[string]any{"chat_id": req.ChatID, "build": a.build})
+
+	extra := &msgExtra{}
+	reply, err := a.converse(r.Context(), client, set, pid, msgs, extra, send)
+	if strings.TrimSpace(reply) != "" || len(extra.Tools) > 0 {
 		a.mu.RLock()
 		if a.st != nil {
-			if err := a.st.AddMessage(req.ChatID, "assistant", reply); err != nil {
+			if err := a.st.AddMessage(req.ChatID, "assistant", reply, extra); err != nil {
 				log.Printf("save reply: %v", err)
 			}
 		}
@@ -182,6 +186,85 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 	send(map[string]bool{"done": true})
 }
 
+// maxRounds is how many times the model may call tools for one question.
+const maxRounds = 6
+
+// converse runs the tool loop: the model answers or asks for tools; tools
+// run against the records and their results go back, until it answers.
+// Text streams to the browser as it comes; so do charts, opened files and
+// changes, as events.
+func (a *App) converse(ctx context.Context, client *ollama.Client, set Settings, pid int64, msgs []ollama.Message,
+	extra *msgExtra, send func(any)) (string, error) {
+	tools := assistantTools
+	var reply strings.Builder
+	for round := 0; ; round++ {
+		if round == maxRounds {
+			tools = nil // make it answer with what it has
+		}
+		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.ChatModel, Messages: msgs, NumCtx: set.NumCtx, Tools: tools},
+			func(t string) {
+				reply.WriteString(t)
+				send(map[string]string{"t": t})
+			})
+		if errors.Is(err, ollama.ErrNoTools) && tools != nil {
+			send(map[string]string{"t": "_This model can't use tools, so I can only answer from the summary. Pick a model with tool use in Settings._\n\n"})
+			tools = nil
+			round = maxRounds
+			continue
+		}
+		if err != nil {
+			return reply.String(), err
+		}
+		if len(calls) == 0 || tools == nil {
+			return reply.String(), nil
+		}
+		if text != "" {
+			reply.WriteString("\n\n")
+			send(map[string]string{"t": "\n\n"})
+		}
+		msgs = append(msgs, ollama.Message{Role: "assistant", Content: text, ToolCalls: calls})
+		for _, c := range calls {
+			var result string
+			a.mu.RLock()
+			if a.st == nil {
+				result = "Error: the records were locked."
+			} else {
+				env := &toolEnv{st: a.st, pid: pid, today: time.Now(), emit: send, extra: extra}
+				result = env.run(c)
+			}
+			a.mu.RUnlock()
+			msgs = append(msgs, ollama.Message{Role: "tool", ToolName: c.Function.Name, Content: result})
+		}
+	}
+}
+
+// viewingSection tells the model about the file open beside the chat, so
+// "this" and "here" mean it.
+func viewingSection(st *store.Store, pid, docID int64) string {
+	if docID == 0 {
+		return ""
+	}
+	d, err := st.Document(docID)
+	if err != nil || d.PersonID != pid {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n## What the user is looking at\nThis file is open beside the chat; \"this\", \"it\" and \"here\" mean it unless they say otherwise.\n")
+	b.WriteString(docLine(d) + "\n")
+	if vals, _ := st.DocumentObservations(docID); len(vals) > 0 {
+		for _, o := range vals {
+			b.WriteString("- " + obsLine(o) + "\n")
+		}
+	}
+	if t := strings.TrimSpace(d.Text); t != "" {
+		if len(t) > 3000 {
+			t = strings.ToValidUTF8(t[:3000], "") + "\n[…more with read_file]"
+		}
+		b.WriteString("Its text:\n" + t + "\n")
+	}
+	return b.String()
+}
+
 // buildSystemPrompt is the rules, then the profile, files and latest
 // measurements of the person being viewed.
 func buildSystemPrompt(st *store.Store, p store.Person) string {
@@ -192,7 +275,14 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 - Answer from the records below. Never invent results, dates, medications or documents. If something isn't in the records, say so.
 - You may explain what results and medical terms mean, point out values outside their reference range, say what you notice, what could explain it and what might be worth asking a doctor about. You are not their doctor and this is not a diagnosis. If something could be urgent or serious, say so plainly and suggest contacting a clinician.
 - Be concise and concrete: short paragraphs or bullet lists, values with units, dates as YYYY-MM-DD.
-- Below are the files with a short summary of each, and the latest value of every measurement. You can't open a file's full text yet; if the answer needs more than the summaries and values show, say so.
+- Below is the profile, the files with a short summary of each, and the latest value of every measurement. For anything more, use your tools and answer from what they return: read_file for what a file says, get_values for every reading of something over time, search_files to find files.
+- When the user asks how something is trending, or for a graph or chart, call chart, then describe the trend in a sentence or two.
+- When the user asks to see, pull up or open a file, call open_file.
+- When the user tells you a measurement ("weight 182 today", "BP 128/82 this morning"), save it with note_value right away, then confirm in one short line. When they tell you about an allergy, condition, medication, surgery, family history, vaccination or doctor, or their birth date, sex, height or blood type, save it with update_profile. Every change shows to them with an Undo button, so don't ask "shall I save it?" first. When they give several things at once (two family members, three medications), call the tool once for each.
+- Only say you saved, added or updated something after the tool answered "Saved". If you didn't call a tool, nothing was saved; never claim otherwise.
+- If the user asks you to help fill in their profile, interview them like a friendly intake nurse: look at which profile sections are empty, ask about one or two at a time, save each answer as you get it, and move on. Let them skip anything.
+- Don't paste ids like [doc:12] into answers; name files by title and date.
+- Don't narrate that you're about to look something up; just call the tool.
 
 `)
 	pr := p.Profile
@@ -235,37 +325,31 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 	items("Vaccinations", pr.Vaccinations)
 	items("Providers", pr.Providers)
 	line("Lifestyle", pr.Lifestyle)
+	line("Emergency contact", pr.EmergencyContact)
+	line("Insurance", pr.Insurance)
 	line("Notes", pr.Notes)
+	var empty []string
+	for _, f := range []struct {
+		name  string
+		blank bool
+	}{
+		{"born", pr.Born == ""}, {"sex", pr.Sex == ""}, {"height", pr.Height == ""}, {"blood type", pr.BloodType == ""},
+		{"allergies", len(pr.Allergies) == 0}, {"medications", len(pr.Medications) == 0}, {"conditions", len(pr.Conditions) == 0},
+		{"surgeries", len(pr.Surgeries) == 0}, {"family history", len(pr.FamilyHistory) == 0}, {"vaccinations", len(pr.Vaccinations) == 0},
+		{"doctors", len(pr.Providers) == 0}, {"lifestyle", pr.Lifestyle == ""}, {"emergency contact", pr.EmergencyContact == ""},
+	} {
+		if f.blank {
+			empty = append(empty, f.name)
+		}
+	}
+	if len(empty) > 0 {
+		b.WriteString("Not filled in yet: " + strings.Join(empty, ", ") + "\n")
+	}
 
 	if docs, _ := st.Documents(p.ID, "", 40); len(docs) > 0 {
-		b.WriteString("\n## Files (newest first)\n")
+		b.WriteString("\n## Files (newest first; the [doc:N] id is for your tools)\n")
 		for _, d := range docs {
-			title := d.Title
-			if title == "" {
-				title = d.Filename
-			}
-			s := "- " + title
-			if d.Kind != "" {
-				s += " [" + d.Kind + "]"
-			}
-			if d.DocDate != "" {
-				s += ", dated " + d.DocDate
-			}
-			if d.Provider != "" {
-				s += ", from " + d.Provider
-			}
-			switch d.Status {
-			case store.StatusNew, store.StatusReading:
-				s += " (not read yet)"
-			case store.StatusReview:
-				s += " (read, waiting for the user to check it)"
-			case store.StatusFailed:
-				s += " (couldn't be read)"
-			}
-			if d.Summary != "" {
-				s += ": " + d.Summary
-			}
-			b.WriteString(s + "\n")
+			b.WriteString("- " + docLine(d) + "\n")
 		}
 	}
 

@@ -8,7 +8,7 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 > It is not a doctor, and the assistant can be wrong. Talk to a clinician
 > about anything that matters; in an emergency, call emergency services.
 
-## What works today (milestones 1 and 2)
+## What works today (milestones 1 to 3)
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -36,12 +36,22 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
   change to anything can be undone.
 - **Open files beside the chat**, with what was read from them: the
   summary, every value (out-of-range ones flagged), and medications named.
-- **Chat** with a model on your own Ollama, which sees the profile, each
-  file's summary and the latest value of every measurement.
+- **Chat is the app.** The assistant, on your own Ollama, sees the
+  profile, each file's summary and the latest value of everything
+  measured, and has tools for the rest:
+  - "Weight 180.5 this morning" saves the value; "I take vitamin D 2000 IU"
+    adds it to the profile. Each change shows with an **Undo** button.
+  - "How is my weight trending?" draws a chart in the chat, with the
+    reference range as a band and out-of-range readings in red.
+  - "Pull up my metabolic panel" opens it beside the chat, and "this" then
+    means that file.
+  - It can search files, read one in full, and look up every reading of
+    anything over time.
+  - "Help me fill in my profile" (or **Fill in with the assistant** on the
+    Profile page) starts an intake interview that saves as it goes.
 
-Charts, opening files from the chat, the DICOM viewer, reusable import
-recipes for big tables, and the bundled medical reference are the next
-milestones.
+The DICOM viewer, reusable import recipes for big tables, and the bundled
+medical reference are the next milestones.
 
 ## Getting started
 

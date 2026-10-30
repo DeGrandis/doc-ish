@@ -125,6 +125,7 @@ var columns = []struct{ table, col, def string }{
 	{"documents", "provider", "TEXT NOT NULL DEFAULT ''"},
 	{"observations", "flag", "TEXT NOT NULL DEFAULT ''"}, // H, L, abnormal… as printed
 	{"activity", "document_id", "INTEGER"},               // the file a change was about
+	{"messages", "extra", "TEXT NOT NULL DEFAULT ''"},    // charts, opened files and changes shown with an answer
 }
 
 const activitySchema = `

@@ -86,14 +86,19 @@ func waitRead(t *testing.T, c *http.Client, url string) docJSON {
 }
 
 func signedIn(t *testing.T, ollamaURL string) (*httptest.Server, *http.Client) {
-	srv, c, _ := testServer(t)
+	srv, c, _ := signedInApp(t, ollamaURL)
+	return srv, c
+}
+
+func signedInApp(t *testing.T, ollamaURL string) (*httptest.Server, *http.Client, *App) {
+	srv, c, a := testServer(t)
 	if code := call(t, c, "POST", srv.URL+"/api/setup", map[string]string{"password": "correct horse", "name": "Jane Doe"}, nil); code != 200 {
 		t.Fatalf("setup: %d", code)
 	}
 	if code := call(t, c, "PUT", srv.URL+"/api/settings", map[string]any{"ollama_url": ollamaURL, "chat_model": "fake", "num_ctx": 16384}, nil); code != 200 {
 		t.Fatalf("settings: %d", code)
 	}
-	return srv, c
+	return srv, c, a
 }
 
 func TestReaderFilesAndUndo(t *testing.T) {

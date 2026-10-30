@@ -1,12 +1,15 @@
 package store
 
+import "encoding/json"
+
 // Message is one turn of a chat.
 type Message struct {
-	ID      int64  `json:"id"`
-	ChatID  int64  `json:"chat_id"`
-	Role    string `json:"role"` // user, assistant
-	Content string `json:"content"`
-	Created string `json:"created"`
+	ID      int64           `json:"id"`
+	ChatID  int64           `json:"chat_id"`
+	Role    string          `json:"role"` // user, assistant
+	Content string          `json:"content"`
+	Extra   json.RawMessage `json:"extra,omitempty"` // what the answer showed besides text
+	Created string          `json:"created"`
 }
 
 // Chat is a conversation on one profile.
@@ -53,9 +56,20 @@ func (s *Store) Chats(personID int64) ([]Chat, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) AddMessage(chatID int64, role, content string) error {
+// AddMessage saves a turn; extra may be nil.
+func (s *Store) AddMessage(chatID int64, role, content string, extra any) error {
+	var ex string
+	if extra != nil {
+		b, err := json.Marshal(extra)
+		if err != nil {
+			return err
+		}
+		if string(b) != "{}" && string(b) != "null" {
+			ex = string(b)
+		}
+	}
 	t := now()
-	if _, err := s.db.Exec(`INSERT INTO messages(chat_id, role, content, created) VALUES(?, ?, ?, ?)`, chatID, role, content, t); err != nil {
+	if _, err := s.db.Exec(`INSERT INTO messages(chat_id, role, content, extra, created) VALUES(?, ?, ?, ?, ?)`, chatID, role, content, ex, t); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(`UPDATE chats SET updated = ? WHERE id = ?`, t, chatID)
@@ -63,7 +77,7 @@ func (s *Store) AddMessage(chatID int64, role, content string) error {
 }
 
 func (s *Store) Messages(chatID int64) ([]Message, error) {
-	rows, err := s.db.Query(`SELECT id, chat_id, role, content, created FROM messages WHERE chat_id = ? ORDER BY id`, chatID)
+	rows, err := s.db.Query(`SELECT id, chat_id, role, content, extra, created FROM messages WHERE chat_id = ? ORDER BY id`, chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +85,12 @@ func (s *Store) Messages(chatID int64) ([]Message, error) {
 	out := []Message{}
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.Created); err != nil {
+		var ex string
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &ex, &m.Created); err != nil {
 			return nil, err
+		}
+		if ex != "" {
+			m.Extra = json.RawMessage(ex)
 		}
 		out = append(out, m)
 	}

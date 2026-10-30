@@ -68,7 +68,7 @@ func (a *App) handleStatus(w http.ResponseWriter, r *http.Request) {
 			storeErr(w, err)
 			return
 		}
-		writeJSON(w, map[string]any{"counts": counts, "reader": a.readerStatus()})
+		writeJSON(w, map[string]any{"counts": counts, "reader": a.readerStatus(), "build": a.build})
 	})
 }
 

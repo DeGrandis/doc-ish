@@ -123,9 +123,34 @@ func (c *Client) Models(ctx context.Context) ([]Model, error) {
 
 // Message is one chat message. Images are base64 (for vision models).
 type Message struct {
-	Role    string   `json:"role"`
-	Content string   `json:"content"`
-	Images  []string `json:"images,omitempty"`
+	Role      string     `json:"role"`
+	Content   string     `json:"content"`
+	Images    []string   `json:"images,omitempty"`
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ToolName  string     `json:"tool_name,omitempty"` // on a tool result
+}
+
+// ToolCall is the model asking to run a tool.
+type ToolCall struct {
+	Function struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	} `json:"function"`
+}
+
+// Tool describes a function the model may call; Parameters is a JSON
+// schema.
+type Tool struct {
+	Name        string
+	Description string
+	Parameters  map[string]any
+}
+
+func (t Tool) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"type":     "function",
+		"function": map[string]any{"name": t.Name, "description": t.Description, "parameters": t.Parameters},
+	})
 }
 
 // ChatRequest is a streaming chat call.
@@ -133,11 +158,15 @@ type ChatRequest struct {
 	Model    string
 	Messages []Message
 	NumCtx   int
+	Tools    []Tool
 }
 
+// ErrNoTools means the model can't use tools.
+var ErrNoTools = errors.New("this model can't use tools")
+
 // Chat streams the reply, calling onText with each piece as it arrives,
-// and returns the whole reply.
-func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (string, error) {
+// and returns the whole reply and any tools the model asked to run.
+func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (string, []ToolCall, error) {
 	body := map[string]any{
 		"model":    r.Model,
 		"messages": r.Messages,
@@ -145,21 +174,29 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		"think":    false,
 		"options":  map[string]any{"temperature": 0.2, "num_ctx": r.NumCtx},
 	}
+	if len(r.Tools) > 0 {
+		body["tools"] = r.Tools
+	}
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", c.base+"/api/chat", bytes.NewReader(b))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", friendly(err)
+		return "", nil, friendly(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return "", apiError(resp)
+		err := apiError(resp)
+		if strings.Contains(err.Error(), "does not support tools") {
+			return "", nil, ErrNoTools
+		}
+		return "", nil, err
 	}
 	var all strings.Builder
+	var calls []ToolCall
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 4<<20)
 	for sc.Scan() {
@@ -172,20 +209,21 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 			continue
 		}
 		if chunk.Error != "" {
-			return all.String(), errors.New(chunk.Error)
+			return all.String(), calls, errors.New(chunk.Error)
 		}
 		if t := chunk.Message.Content; t != "" {
 			all.WriteString(t)
 			onText(t)
 		}
+		calls = append(calls, chunk.Message.ToolCalls...)
 		if chunk.Done {
 			break
 		}
 	}
 	if err := sc.Err(); err != nil && ctx.Err() == nil {
-		return all.String(), friendly(err)
+		return all.String(), calls, friendly(err)
 	}
-	return all.String(), ctx.Err()
+	return all.String(), calls, ctx.Err()
 }
 
 // ChatJSON asks for one answer shaped by a JSON schema (Ollama's

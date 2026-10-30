@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
+<meta name="build" content="__BUILD__">
 <title>__BRAND__</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="fonts/urbanist.css">
@@ -79,6 +80,7 @@
 
 <main>
   <div id="toast" role="status" hidden></div>
+  <div id="update-bar" class="hint" hidden>__BRAND__ was updated while this page was open. <button type="button" class="link" id="update-reload">Reload</button> to use the new version.</div>
 
   <!-- Home: the chat, with the person's summary or an open file beside it -->
   <section id="home" class="tab">
@@ -147,9 +149,10 @@
         <h1 class="page-title" id="profile-title">Profile</h1>
         <span class="spacer"></span>
         <span class="small muted" id="profile-saved"></span>
+        <button type="button" id="profile-interview" title="The assistant asks you questions and fills this in">Fill in with the assistant</button>
         <button class="primary" type="submit">Save</button>
       </div>
-      <p class="muted small">What a new doctor's office would ask. Fill in what you know; the assistant will be able to help.</p>
+      <p class="muted small">What a new doctor's office would ask. Fill in what you know, or let the assistant interview you. It can also add things as they come up in the chat ("I'm allergic to penicillin").</p>
 
       <h2 class="section-h">Basics</h2>
       <div class="grid">

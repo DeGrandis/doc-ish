@@ -265,6 +265,7 @@ async function poll() {
   try { s = await api("GET", "/api/status"); } catch {}
   polling = false;
   if (!s) { pollTimer = setTimeout(poll, 15000); return; }
+  checkBuild(s.build);
   state.reader = s.reader || {};
   const mine = s.counts[state.person.id] || {};
   const busy = (mine.new || 0) + (mine.reading || 0);
@@ -282,6 +283,14 @@ async function poll() {
   readerNote(busy);
   pollTimer = setTimeout(poll, busy ? 2000 : 20000);
 }
+
+// checkBuild notices when the server's UI is newer than this page's:
+// an old script misses new features without any error, so say so.
+const pageBuild = document.querySelector('meta[name="build"]').content;
+function checkBuild(build) {
+  if (build && build !== pageBuild) $("#update-bar").hidden = false;
+}
+$("#update-reload").addEventListener("click", () => location.reload());
 
 // announce tells the chat what the reader made of a file.
 async function announce(d) {
@@ -635,8 +644,9 @@ function renderChatEmpty() {
   const first = esc(p.name.split(" ")[0]);
   const ideas = [
     "What's in my records so far?",
-    "What should I add to my profile?",
-    "What does an A1C test measure?",
+    "Help me fill in my profile",
+    "Anything out of range in my labs?",
+    "How is my weight trending?",
   ];
   $("#chat-log").innerHTML = `<div class="chat-empty">
     <h2>Hi, <span class="hi">${first}</span>.</h2>
@@ -651,20 +661,144 @@ async function showChat(id) {
   const msgs = await api("GET", `/api/chats/${id}`);
   const log = $("#chat-log");
   log.innerHTML = "";
-  for (const m of msgs) addMsg(m.role, m.content);
+  for (const m of msgs) {
+    const el = addMsg(m.role, m.content);
+    if (m.role === "assistant") {
+      if (m.extra) renderExtra(el, m.extra);
+      warnUnsaved(el, m.content, !!(m.extra && (m.extra.changes || []).length), !!(m.extra && (m.extra.opened || []).length));
+    }
+  }
   log.scrollTop = log.scrollHeight;
 }
 
+// An assistant message is its text, then what came with it: the lookups
+// it made, charts, and changes with their Undo buttons.
 function addMsg(role, text) {
   const log = $("#chat-log");
   $(".chat-empty", log)?.remove();
   const el = document.createElement("div");
   el.className = "msg " + role;
-  if (role === "assistant") el.innerHTML = md(text);
+  if (role === "assistant") el.innerHTML = `<div class="body">${md(text)}</div><div class="extras"></div>`;
   else el.textContent = text;
   log.appendChild(el);
   log.scrollTop = log.scrollHeight;
   return el;
+}
+
+// Every real change shows as a card, and every opened file as a chip.
+// Small models sometimes say they did something without doing it; say
+// so, so nobody relies on it.
+function warnUnsaved(el, text, changed, opened) {
+  const claim = verbs => new RegExp(`\\b(I've|I have|I)\\s+(${verbs})\\b`, "i").test(text);
+  let msg = "";
+  if (!changed && claim("saved|added|updated|noted|recorded|set")) msg = "Nothing was actually saved in this answer. Ask again, or add it on the Profile page.";
+  else if (!opened && claim("pulled up|opened|brought up")) msg = "Nothing was actually opened. Ask again, or open it from Files.";
+  if (msg) $(".extras", el).insertAdjacentHTML("afterbegin", `<p class="unsaved small">${msg}</p>`);
+}
+
+function renderExtra(el, ex) {
+  for (const c of ex.charts || []) addChart(el, c);
+  for (const c of ex.changes || []) addChange(el, c);
+  if ((ex.tools || []).length) addChips(el, ex.tools);
+}
+
+function addChips(el, tools) {
+  let row = $(".chips-row", el);
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "chips-row";
+    $(".extras", el).appendChild(row);
+  }
+  for (const t of tools) {
+    row.insertAdjacentHTML("beforeend", t.doc
+      ? `<a class="tool-chip" href="#home/doc/${t.doc}">${esc(t.label)}</a>`
+      : `<span class="tool-chip">${esc(t.label)}</span>`);
+  }
+}
+
+function addChange(el, c) {
+  $(".extras", el).insertAdjacentHTML("beforeend", `<div class="change-card" data-activity="${c.activity_id}">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l4 4 8-9"/></svg>
+    <span class="spacer">${esc(c.summary)}</span>
+    <button type="button" data-undo-change="${c.activity_id}">Undo</button></div>`);
+}
+
+function addChart(el, spec) {
+  const host = document.createElement("figure");
+  host.className = "chart-card";
+  // Different units can't share an axis: one chart each.
+  const units = [...new Set(spec.series.map(s => s.unit))];
+  const groups = units.length > 1 ? spec.series.map(s => ({ title: `${s.name}${s.unit ? ` (${s.unit})` : ""}`, series: [s] })) : [spec];
+  host.innerHTML = groups.map(g => `<figcaption>${esc(g.title)}</figcaption>${chartSVG(g.series)}`).join("");
+  $(".extras", el).appendChild(host);
+}
+
+const SERIES_COLORS = ["var(--chart-line)", "var(--accent)", "#5b8def", "#3fb68b"];
+
+// chartSVG draws readings over time: lines with dots, the reference range
+// as a band (one series only), out-of-range readings in red.
+function chartSVG(series) {
+  const W = 640, H = 230, L = 46, R = 14, T = 12, B = 28;
+  const pts = series.flatMap(s => s.points.map(p => ({ ...p, t: Date.parse(p.d) })));
+  let t0 = Math.min(...pts.map(p => p.t)), t1 = Math.max(...pts.map(p => p.t));
+  if (t0 === t1) { t0 -= 864e5 * 15; t1 += 864e5 * 15; }
+  const one = series.length === 1 ? series[0] : null;
+  let v0 = Math.min(...pts.map(p => p.v)), v1 = Math.max(...pts.map(p => p.v));
+  if (one && one.ref_low != null) v0 = Math.min(v0, one.ref_low);
+  if (one && one.ref_high != null) v1 = Math.max(v1, one.ref_high);
+  if (v0 === v1) { v0 -= 1; v1 += 1; }
+  const pad = (v1 - v0) * 0.08;
+  v0 -= pad; v1 += pad;
+  const x = t => L + (t - t0) / (t1 - t0) * (W - L - R);
+  const y = v => T + (1 - (v - v0) / (v1 - v0)) * (H - T - B);
+  const fmt = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 10 ? v.toFixed(1) : v.toFixed(2);
+  let svg = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(series.map(s => s.name).join(", "))} over time">`;
+  for (let i = 0; i <= 4; i++) {
+    const v = v0 + (v1 - v0) * i / 4, yy = y(v);
+    svg += `<line x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}" class="grid"/><text x="${L - 6}" y="${yy + 4}" text-anchor="end" class="tick">${fmt(v)}</text>`;
+  }
+  if (one && (one.ref_low != null || one.ref_high != null)) {
+    const top = y(one.ref_high != null ? one.ref_high : v1), bot = y(one.ref_low != null ? one.ref_low : v0);
+    svg += `<rect x="${L}" y="${top}" width="${W - L - R}" height="${Math.max(bot - top, 0)}" class="band"><title>Reference range</title></rect>`;
+  }
+  const dates = [t0, (t0 + t1) / 2, t1];
+  dates.forEach((t, i) => {
+    svg += `<text x="${x(t)}" y="${H - 8}" text-anchor="${["start", "middle", "end"][i]}" class="tick">${new Date(t).toISOString().slice(0, 10)}</text>`;
+  });
+  series.forEach((s, i) => {
+    const c = SERIES_COLORS[i % SERIES_COLORS.length];
+    const ps = s.points.map(p => [x(Date.parse(p.d)), y(p.v), p]);
+    svg += `<polyline fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" points="${ps.map(p => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ")}"/>`;
+    for (const [px, py, p] of ps) {
+      svg += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${p.out ? "var(--neg)" : c}" stroke="var(--bg)" stroke-width="1.5"><title>${esc(p.d)}: ${esc(fmt(p.v))} ${esc(s.unit || "")}${p.out ? " (out of range)" : ""}</title></circle>`;
+    }
+  });
+  svg += "</svg>";
+  if (series.length > 1) {
+    svg += `<div class="legend">${series.map((s, i) => `<span><i style="background:${SERIES_COLORS[i % SERIES_COLORS.length]}"></i>${esc(s.name)}</span>`).join("")}</div>`;
+  }
+  return svg;
+}
+
+// Undo on a change the assistant made.
+$("#chat-log").addEventListener("click", async e => {
+  const b = e.target.closest("[data-undo-change]");
+  if (!b) return;
+  b.disabled = true;
+  try {
+    await api("POST", `/api/activity/${b.dataset.undoChange}/undo`);
+    b.closest(".change-card").classList.add("undone");
+    b.textContent = "Undone";
+    await afterChange();
+  } catch (err) { toast(err.message, true); b.disabled = false; }
+});
+
+// afterChange refreshes what a saved value or profile edit shows up in.
+async function afterChange() {
+  state.person = await api("GET", `/api/people/${state.person.id}`);
+  await loadPeople();
+  renderPicker();
+  if (document.body.dataset.tab === "home" && !state.viewing) renderSummary();
 }
 
 $("#chat-pick").addEventListener("change", e => showChat(+e.target.value));
@@ -691,13 +825,14 @@ async function send() {
   autosize();
   addMsg("user", text);
   const out = addMsg("assistant", "");
-  out.innerHTML = `<span class="typing"></span>`;
-  let reply = "", queued = false;
-  const paint = () => { queued = false; out.innerHTML = md(reply); $("#chat-log").scrollTop = $("#chat-log").scrollHeight; };
+  const body = $(".body", out);
+  body.innerHTML = `<span class="typing"></span>`;
+  let reply = "", queued = false, changed = false, opened = false;
+  const paint = () => { queued = false; body.innerHTML = md(reply) || `<span class="typing"></span>`; $("#chat-log").scrollTop = $("#chat-log").scrollHeight; };
   try {
     const r = await fetch(`/api/people/${state.person.id}/chat`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: state.chatId, message: text }),
+      body: JSON.stringify({ chat_id: state.chatId, message: text, viewing: state.viewing || 0 }),
     });
     if (!r.ok) {
       let msg = r.statusText;
@@ -719,15 +854,22 @@ async function send() {
         if (!line.trim()) continue;
         const ev = JSON.parse(line);
         if (ev.chat_id && !state.chatId) state.chatId = ev.chat_id;
+        if (ev.build) checkBuild(ev.build);
         if (ev.t) { reply += ev.t; if (!queued) { queued = true; requestAnimationFrame(paint); } }
+        if (ev.tool) addChips(out, [ev.tool]);
+        if (ev.chart) addChart(out, ev.chart);
+        if (ev.change) { addChange(out, ev.change); changed = true; }
+        if (ev.open) { opened = true; location.hash = `#home/doc/${ev.open}`; }
         if (ev.error) throw new Error(ev.error);
       }
     }
     paint();
-    if (!reply.trim()) out.innerHTML = `<span class="muted">No answer.</span>`;
+    if (!reply.trim()) body.innerHTML = $(".extras", out).children.length ? "" : `<span class="muted">No answer.</span>`;
+    warnUnsaved(out, reply, changed, opened);
+    if (changed) afterChange();
     loadChats();
   } catch (err) {
-    if (!reply) out.remove();
+    if (!reply && !$(".extras", out).children.length) out.remove();
     const e = addMsg("assistant", "");
     e.classList.add("err");
     e.textContent = err.message;
@@ -871,6 +1013,14 @@ $("#profile-lists").addEventListener("click", e => {
   if (rm) { rm.closest(".item").remove(); $("#profile-saved").textContent = "Unsaved changes"; }
 });
 $("#profile-form").addEventListener("input", () => ($("#profile-saved").textContent = "Unsaved changes"));
+$("#profile-interview").addEventListener("click", () => {
+  if ($("#profile-saved").textContent === "Unsaved changes" && !confirm("Leave without saving your changes here?")) return;
+  location.hash = "#home";
+  state.chatId = 0;
+  $("#chat-pick").value = "0";
+  input.value = "Help me fill in my profile. Ask me one or two questions at a time.";
+  send();
+});
 
 // parseWeight reads "182", "182 lb", "82.5kg"; no unit means pounds.
 function parseWeight(s) {

@@ -29,16 +29,25 @@ func LogTx(tx *sql.Tx, personID int64, actor, summary string, undo any) error {
 // can be undone: undoing an older one would put back a state that later
 // changes have built on.
 func LogDocTx(tx *sql.Tx, personID, docID int64, actor, summary string, undo any) error {
+	_, err := LogIDTx(tx, personID, docID, actor, summary, undo)
+	return err
+}
+
+// LogIDTx records a change and returns its id, for an Undo button.
+func LogIDTx(tx *sql.Tx, personID, docID int64, actor, summary string, undo any) (int64, error) {
 	var u []byte
 	if undo != nil {
 		var err error
 		if u, err = json.Marshal(undo); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	_, err := tx.Exec(`INSERT INTO activity(person_id, document_id, at, actor, summary, undo) VALUES(?, ?, ?, ?, ?, ?)`,
+	res, err := tx.Exec(`INSERT INTO activity(person_id, document_id, at, actor, summary, undo) VALUES(?, ?, ?, ?, ?, ?)`,
 		nullID(personID), nullID(docID), now(), actor, summary, string(u))
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
 }
 
 func nullID(id int64) any {

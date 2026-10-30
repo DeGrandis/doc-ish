@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -45,6 +46,7 @@ type App struct {
 	sessions map[string]time.Time // token -> last use
 	fails    map[string]failure   // remote IP -> wrong passwords
 
+	build    string        // fingerprint of the UI files, so an open page can tell it's out of date
 	wake     chan struct{} // nudges the file reader
 	stop     context.CancelFunc
 	readerMu sync.Mutex
@@ -59,7 +61,7 @@ type failure struct {
 const sessionIdle = 30 * 24 * time.Hour
 
 func New(cfg Config) (*App, error) {
-	a := &App{cfg: cfg, sessions: map[string]time.Time{}, fails: map[string]failure{}, wake: make(chan struct{}, 1)}
+	a := &App{cfg: cfg, sessions: map[string]time.Time{}, fails: map[string]failure{}, wake: make(chan struct{}, 1), build: uiBuild(cfg.Web)}
 	ctx, stop := context.WithCancel(context.Background())
 	a.stop = stop
 	go a.readLoop(ctx)
@@ -185,9 +187,25 @@ func (a *App) Handler() http.Handler {
 			a.serveIndex(w)
 			return
 		}
+		w.Header().Set("Cache-Control", "no-cache") // always check, so a reload after an upgrade gets the new files
 		static.ServeHTTP(w, r)
 	})
 	return securityHeaders(sameOrigin(mux))
+}
+
+// uiBuild fingerprints the UI files. A page loaded before an upgrade
+// keeps running its old script; comparing this tells it to reload.
+func uiBuild(web fs.FS) string {
+	h := sha256.New()
+	fs.WalkDir(web, ".", func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && (strings.HasSuffix(p, ".js") || strings.HasSuffix(p, ".html") || strings.HasSuffix(p, ".css")) {
+			b, _ := fs.ReadFile(web, p)
+			h.Write([]byte(p))
+			h.Write(b)
+		}
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 // serveIndex fills in the product name and version.
@@ -199,6 +217,7 @@ func (a *App) serveIndex(w http.ResponseWriter) {
 	}
 	b = bytes.ReplaceAll(b, []byte("__BRAND__"), []byte(brand.Name))
 	b = bytes.ReplaceAll(b, []byte("__VERSION__"), []byte(a.cfg.Version))
+	b = bytes.ReplaceAll(b, []byte("__BUILD__"), []byte(a.build))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Write(b)
