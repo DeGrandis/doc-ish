@@ -27,6 +27,7 @@ type Topic struct {
 	Also    []string `json:"also,omitempty"`
 	Summary string   `json:"summary"`
 	Groups  []string `json:"groups,omitempty"`
+	Partial bool     `json:"-"` // matched only some words of the question, by name
 }
 
 // bundle is the topics as of the last build: a gzipped JSON object

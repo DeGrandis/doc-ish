@@ -69,6 +69,18 @@ func (s *Store) AddDocument(d Document) (Document, error) {
 	return s.Document(id)
 }
 
+// AddDocumentTx records a document with everything already known about
+// it (an imaging study's, say), returning its id.
+func AddDocumentTx(tx *sql.Tx, d Document) (int64, error) {
+	res, err := tx.Exec(`INSERT INTO documents(person_id, blob, filename, mime, size, sha256, kind, title, doc_date, provider, summary, status, review_reason, added)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, d.PersonID, d.Blob, d.Filename, d.Mime, d.Size, d.SHA256, d.Kind, d.Title,
+		d.DocDate, d.Provider, d.Summary, d.Status, d.ReviewReason, now())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
 func (s *Store) Document(id int64) (Document, error) {
 	d, err := scanDoc(s.db.QueryRow(`SELECT `+docCols+` FROM documents WHERE id = ?`, id))
 	if err != nil {

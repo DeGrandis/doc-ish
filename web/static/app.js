@@ -427,6 +427,7 @@ async function openDoc(id) {
     const owner = state.people.find(p => p.id === d.person_id);
     if (owner) { await selectPerson(owner.id, true); renderSummary(); }
   }
+  if (stopViewer) { stopViewer(); stopViewer = null; }
   state.viewing = id;
   $(".home").classList.add("viewing");
   $("#summary").hidden = true;
@@ -469,8 +470,10 @@ async function openDoc(id) {
     const text = await (await fetch(src)).text();
     if (state.viewing !== id) return;
     body.innerHTML = m === "text/csv" ? csvTable(text) : `<pre>${esc(text.slice(0, 200000))}</pre>`;
+  } else if (m === "application/dicom") {
+    stopViewer = dicomViewer(body, d, esc, api, toast);
   } else {
-    body.innerHTML = `<p class="small muted">${m === "application/dicom" ? "Images get a viewer in a later version." : "This kind of file can't be shown here."} Download it to open it.</p>`;
+    body.innerHTML = `<p class="small muted">This kind of file can't be shown here. Download it to open it.</p>`;
   }
 }
 
@@ -640,7 +643,9 @@ function parseCSVLine(line) {
   return out;
 }
 
+let stopViewer = null;
 function closeViewer() {
+  if (stopViewer) { stopViewer(); stopViewer = null; }
   state.viewing = 0;
   $(".home").classList.remove("viewing");
   $("#viewer").hidden = true;
@@ -661,6 +666,12 @@ $("#viewer").addEventListener("click", async e => {
     } catch (err) { toast(err.message, true); }
   }
 });
+// "Ask about this image" in the imaging viewer.
+$("#viewer").addEventListener("ask-image", () => {
+  input.value = "What can you see in this image? Is there anything I should look out for or ask about?";
+  send();
+});
+
 $("#viewer").addEventListener("submit", async e => {
   if (e.target.id !== "doc-form") return;
   e.preventDefault();

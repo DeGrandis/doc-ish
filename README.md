@@ -8,7 +8,7 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 > It is not a doctor, and the assistant can be wrong. Talk to a clinician
 > about anything that matters; in an emergency, call emergency services.
 
-## What works today (milestones 1 to 5)
+## What works today (milestones 1 to 6)
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -87,7 +87,30 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
   The app contacts these sources only when you press a button in
   Settings, and nothing about what you look up is sent anywhere.
 
-The DICOM viewer is the next milestone.
+- **Imaging (X-ray, CT, MRI, ultrasound).** Drop DICOM files, a whole
+  folder from a hospital CD, or a zip of one: images are gathered into
+  studies by their own ids, series by series, and the same image twice is
+  noticed. A report PDF or text on the CD becomes a file of its own;
+  the CD's index and viewer program are left out. A study is described
+  from its tags (no model needed) and held in Review if the name in it
+  isn't the profile's.
+  - **The viewer** shows each series as a thumbnail, then its images slice
+    by slice (scroll, drag or the slider), with brightness and contrast
+    (window and level) done in the browser from the full 16-bit values,
+    CT presets (soft tissue, lung, bone, brain, liver), invert, zoom and
+    pan, on a phone too. Download gives the whole study as a zip.
+  - Uncompressed and JPEG images are read directly; JPEG Lossless,
+    JPEG-LS, JPEG 2000 and RLE, common on CDs, go through GDCM, which the
+    Docker image includes.
+  - **The report** is linked to its study automatically (an imaging report
+    within three days of it), or by hand from the viewer.
+  - **"Ask about this image"**: the vision model looks at the main
+    series' middle image together with the linked report, and the
+    assistant says what it notices and what to ask, as an AI's look at one
+    image, with the radiologist's report as what counts.
+
+Backups, the model benchmark for this app and release builds are the last
+milestone.
 
 ## Getting started
 
@@ -119,6 +142,14 @@ docker run --rm -p 127.0.0.1:8090:8080 -v "$PWD:/src" -w /src golang:1.26-alpine
 
 **Never commit real records.** `private/` and `*.real.*` are git-ignored.
 
+`dev.Dockerfile` is a Go image with the same tools as the app image
+(Poppler, GDCM), for running tests and the dev server. Invented imaging
+studies for trying the viewer:
+
+```sh
+docker run --rm -v "$PWD:/src" -w /src mymedical-devbase go run ./cmd/mymedical imaging synth -out ./_dev/synth
+```
+
 The MedlinePlus topics built into the binary are refreshed with:
 
 ```sh
@@ -146,6 +177,8 @@ internal/ollama     the user's Ollama: models, streaming chat, structured answer
 internal/ingest     reading files: extraction, the reader's prompt, the checks for Review
 internal/recipes    import recipes: the Starlark sandbox, table fingerprints, drafting with the model
 internal/reference  MedlinePlus (bundled), RxNorm, FDA labels and LOINC, and the lookups over them
+internal/imaging    DICOM: tags, pixels (with GDCM for compressed images), rendering, invented test studies
+internal/openai     an opt-in hosted provider in the OpenAI format
 internal/app        HTTP API, the background reader, Review, Activity, the assistant
 web/static          UI (plain JavaScript, no build step)
 ```

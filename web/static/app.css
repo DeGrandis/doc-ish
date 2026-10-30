@@ -34,7 +34,7 @@
 @media (min-width: 961px) { body[data-tab="home"] main { padding-bottom: 0; } }
 .home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: var(--s-6); align-items: start; }
 .home.viewing { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
-.side { position: sticky; top: calc(var(--nav-h) + var(--s-4)); max-height: calc(100vh - var(--nav-h) - var(--s-6)); overflow: auto; padding-bottom: var(--s-4); }
+.side { position: sticky; top: calc(var(--nav-h) + var(--s-4)); max-height: calc(100vh - var(--nav-h) - var(--s-6)); overflow-y: auto; overflow-x: hidden; padding-bottom: var(--s-4); }
 .chat { display: flex; flex-direction: column; height: calc(100vh - var(--nav-h) - var(--s-6)); min-height: 420px; }
 .chat-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
 .chat-head select { max-width: 220px; min-height: 34px; padding-top: 6px; padding-bottom: 6px; font-size: var(--fs-sm); }
@@ -157,6 +157,27 @@ ul.meds { margin: 0; padding-left: 1.2em; font-size: var(--fs-sm); }
 .msg.note a { color: inherit; }
 .reading-dot { position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); animation: pulse 1s ease-in-out infinite; }
 .typing { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+
+/* Imaging viewer: always on black, as images are read */
+.dv { display: flex; flex-direction: column; gap: var(--s-2); }
+.dv-series { display: flex; gap: var(--s-2); overflow-x: auto; padding-bottom: 2px; }
+.dv-series button { flex: none; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; border-radius: var(--r-sm); border: 1px solid var(--line); width: 96px; min-height: 0; }
+.dv-series button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.dv-series img { width: 86px; height: 86px; object-fit: contain; background: #000; border-radius: 6px; }
+.dv-series span { font-size: 10.5px; color: var(--muted); max-width: 86px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 760px) { .dv-stage { height: 48vh !important; } }
+.dv-stage { position: relative; height: min(68vh, 640px); min-height: 280px; background: #000; border-radius: var(--r-sm); overflow: hidden; touch-action: none; }
+.dv-stage:focus-visible { outline: 2px solid var(--accent); }
+.dv-stage canvas { width: 100%; height: 100%; display: block; cursor: crosshair; }
+.dv-ov { position: absolute; font: 11px/1.3 var(--mono); color: #e8e6df; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.dv-ov.tl { top: 8px; left: 10px; } .dv-ov.bl { bottom: 8px; left: 10px; } .dv-ov.br { bottom: 8px; right: 10px; }
+.dv-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--s-5); color: #e8e6df; text-align: center; font-size: var(--fs-sm); }
+.dv-slider { width: 100%; accent-color: var(--accent); min-height: 0; padding: 0; background: none; }
+.dv-tools .seg button { padding: 5px 12px; }
+.dv-tools button.on:not(.seg button) { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.dv-tools select { min-height: 32px; padding-top: 5px; padding-bottom: 5px; font-size: var(--fs-sm); }
+.dv-help { margin: 0; }
+.dv-report select { min-height: 30px; padding: 4px 28px 4px 10px; font-size: var(--fs-sm); margin-left: 6px; }
 
 /* Import recipes */
 .recipe-card { margin: var(--s-4) 0 0; padding: var(--s-4) var(--s-5); border: 1px solid var(--accent); border-radius: var(--r-sm); }

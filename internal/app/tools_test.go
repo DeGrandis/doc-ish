@@ -122,6 +122,22 @@ func TestChatSavesWeightWithUndo(t *testing.T) {
 	}
 }
 
+// The same call twice runs once: a looping model doesn't save twice.
+func TestRepeatedToolCallRunsOnce(t *testing.T) {
+	call1 := `{"tool_calls":[{"function":{"name":"note_value","arguments":{"name":"Weight","value":181,"unit":"lb"}}}]}`
+	o := &scriptedOllama{steps: []string{call1, call1, `{"content":"Saved."}`}}
+	srv, c := signedIn(t, o.server(t).URL)
+	chat(t, c, srv.URL+"/api/people/1/chat", "weight 181", 0)
+	var obs []store.Observation
+	call(t, c, "GET", srv.URL+"/api/people/1/observations?name=weight", nil, &obs)
+	if len(obs) != 1 {
+		t.Fatalf("saved %d times", len(obs))
+	}
+	if !strings.Contains(o.seen[2], "already did exactly this") {
+		t.Fatal("the repeat wasn't answered with a note")
+	}
+}
+
 func TestChatUpdatesProfile(t *testing.T) {
 	o := &scriptedOllama{steps: []string{
 		`{"tool_calls":[

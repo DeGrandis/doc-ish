@@ -168,6 +168,9 @@ func (a *App) handleReread(w http.ResponseWriter, r *http.Request) {
 			if d.Status == store.StatusReading {
 				return errors.New("it's being read right now")
 			}
+			if d.Mime == "application/dicom" {
+				return errors.New("imaging studies are described from their own tags; there's nothing to read again")
+			}
 			old, err := store.DocumentObservationIDsTx(tx, id)
 			if err != nil {
 				return err

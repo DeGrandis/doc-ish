@@ -198,6 +198,7 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 	extra *msgExtra, send func(any)) (string, error) {
 	tools := assistantTools
 	var reply strings.Builder
+	done := map[string]bool{} // tool calls already run, by name and arguments
 	for round := 0; ; round++ {
 		if round == maxRounds {
 			tools = nil // make it answer with what it has
@@ -226,11 +227,20 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 		msgs = append(msgs, ollama.Message{Role: "assistant", Content: text, ToolCalls: calls})
 		for _, c := range calls {
 			var result string
+			key := c.Function.Name + string(c.Function.Arguments)
+			if done[key] {
+				// Small models sometimes repeat a lookup that came back
+				// unhelpful; running it again changes nothing.
+				msgs = append(msgs, ollama.Message{Role: "tool", ToolName: c.Function.Name,
+					Content: "You already did exactly this above and have its result. Don't repeat it: answer with what you have, and say what you couldn't find."})
+				continue
+			}
+			done[key] = true
 			a.mu.RLock()
 			if a.st == nil {
 				result = "Error: the records were locked."
 			} else {
-				env := &toolEnv{st: a.st, ref: a.ref, pid: pid, today: time.Now(), emit: send, extra: extra}
+				env := &toolEnv{st: a.st, files: a.files, set: set, ref: a.ref, pid: pid, today: time.Now(), emit: send, extra: extra}
 				result = env.run(c)
 			}
 			a.mu.RUnlock()
@@ -278,6 +288,7 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 - Be concise and concrete: short paragraphs or bullet lists, values with units, dates as YYYY-MM-DD.
 - Below is the profile, the files with a short summary of each, and the latest value of every measurement. For anything more, use your tools and answer from what they return: read_file for what a file says, get_values for every reading of something over time, search_files to find files.
 - Before explaining what a condition, symptom, test or term means, call explain (MedlinePlus) and base the explanation on what it returns, mentioning MedlinePlus. For a medication, call lookup_drug. When asked whether medications go together, or about side effects of a combination, call drug_interactions with every medication involved, and quote what the FDA labels say. If the reference has nothing, say so instead of filling in from memory.
+- For an imaging study (X-ray, CT, MRI…), describe_image has the vision model look at it, with its report when one is linked. Present what it says as what an AI notices, not a radiologist's reading; where there's a report, the report is what counts.
 - When the user asks how something is trending, or for a graph or chart, call chart, then describe the trend in a sentence or two.
 - When the user asks to see, pull up or open a file, call open_file.
 - When the user tells you a measurement ("weight 182 today", "BP 128/82 this morning"), save it with note_value right away, then confirm in one short line. When they tell you about an allergy, condition, medication, surgery, family history, vaccination or doctor, or their birth date, sex, height or blood type, save it with update_profile. Every change shows to them with an Undo button, so don't ask "shall I save it?" first. When they give several things at once (two family members, three medications), call the tool once for each.

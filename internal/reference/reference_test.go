@@ -60,6 +60,13 @@ func TestTopics(t *testing.T) {
 	if got, _ := r.Explain("what is LDL", 2); len(got) == 0 || got[0].Title != "Cholesterol" {
 		t.Fatalf("full text: %+v", got)
 	}
+	// One word of several, found only in a summary, isn't a match.
+	if got, _ := r.Explain("substance nodule", 2); len(got) != 0 {
+		t.Fatalf("loose match: %+v", got)
+	}
+	if got, _ := r.Explain("cholesterol nodule", 2); len(got) != 1 || got[0].Title != "Cholesterol" {
+		t.Fatalf("name match: %+v", got)
+	}
 }
 
 // Lookups go on while an import holds a write transaction open.
@@ -85,6 +92,37 @@ func TestLookupDuringImport(t *testing.T) {
 		t.Fatal("a lookup waited for the import")
 	}
 	close(release)
+}
+
+// Lookups on the real, bundled topics.
+func TestExplainBundled(t *testing.T) {
+	if len(bundle) == 0 {
+		t.Skip("no bundled topics in this build")
+	}
+	r, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	got, _ := r.Explain("What does my A1C mean?", 2)
+	if len(got) == 0 || got[0].Title != "A1C" {
+		t.Fatalf("A1C: %v", titles(got))
+	}
+	got, _ = r.Explain("lung nodule", 2)
+	for _, tp := range got {
+		if tp.Title == "Voice Disorders" || tp.Title == "Rheumatoid Arthritis" {
+			t.Fatalf("lung nodule: %v", titles(got))
+		}
+	}
+	t.Logf("lung nodule -> %v", titles(got))
+}
+
+func titles(ts []Topic) []string {
+	var out []string
+	for _, t := range ts {
+		out = append(out, t.Title)
+	}
+	return out
 }
 
 func TestBundleRoundTrip(t *testing.T) {

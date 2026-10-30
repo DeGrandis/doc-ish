@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -172,6 +173,15 @@ func (e *toolEnv) explain(q string) (string, error) {
 	if len(topics) == 0 {
 		e.note("explain", "MedlinePlus: nothing on "+q, 0)
 		return fmt.Sprintf("MedlinePlus has no topic on %q. Say so rather than explaining from memory, or try other words.", q), nil
+	}
+	if topics[0].Partial {
+		var names []string
+		for _, t := range topics {
+			names = append(names, t.Title)
+		}
+		e.note("explain", "MedlinePlus: no topic on "+q, 0)
+		return fmt.Sprintf("MedlinePlus has no topic on %q itself. Topics that only share a word with it: %s. They are probably not what was asked; don't present them as the answer. Say MedlinePlus has no page on it, explain only in general terms, and say so.",
+			q, strings.Join(names, ", ")), nil
 	}
 	var out string
 	for _, t := range topics {

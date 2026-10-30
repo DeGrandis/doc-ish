@@ -222,6 +222,8 @@ func (a *App) readNext(ctx context.Context) bool {
 		st.SetStatus(doc.ID, store.StatusFailed, "couldn't save what was read")
 	} else if draft != nil {
 		a.propose(st, cur.ID, fingerprint, *draft)
+	} else if res.Kind == "imaging" {
+		linkReports(st, cur.PersonID) // a radiology report finds its images
 	}
 	a.setReader(0, "")
 	return true

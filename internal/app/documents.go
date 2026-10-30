@@ -10,11 +10,13 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/DeGrandis/mymedical/internal/blobs"
+	"github.com/DeGrandis/mymedical/internal/imaging"
 	"github.com/DeGrandis/mymedical/internal/store"
 )
 
@@ -39,6 +41,7 @@ type uploadResult struct {
 	Filename  string          `json:"filename"`
 	Document  *store.Document `json:"document,omitempty"`
 	Duplicate bool            `json:"duplicate,omitempty"`
+	Images    int             `json:"images,omitempty"` // for an imaging study: images added to it
 	Error     string          `json:"error,omitempty"`
 }
 
@@ -62,6 +65,7 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		results := []uploadResult{}
+		studies := map[int64]int{} // study document -> its place in results
 		for {
 			part, err := mr.NextPart()
 			if err == io.EOF {
@@ -80,6 +84,50 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			br := bufio.NewReaderSize(part, 4096)
 			head, _ := br.Peek(512)
 			kind := sniff(name, head)
+
+			// DICOM images join their study; a zip (a hospital CD) is unpacked.
+			if kind == "application/dicom" {
+				data, err := imaging.ReadAll(br)
+				part.Close()
+				if err == nil {
+					docID, added, derr := a.addDicom(st, files, pid, data, name)
+					if derr == nil {
+						if i, ok := studies[docID]; ok {
+							if added {
+								results[i].Images++
+							}
+							continue
+						}
+						d, _ := st.Document(docID)
+						res.Document, res.Images, res.Duplicate = &d, b2i(added), !added
+						studies[docID] = len(results)
+						results = append(results, res)
+						continue
+					}
+				}
+				res.Error = "this DICOM file couldn't be read"
+				results = append(results, res)
+				continue
+			}
+			if strings.EqualFold(filepath.Ext(name), ".zip") {
+				path, err := spool(br, filepath.Join(a.cfg.DataDir, "tmp"))
+				part.Close()
+				if err != nil {
+					res.Error = "couldn't take the zip in"
+					results = append(results, res)
+					continue
+				}
+				got, err := a.fromZip(st, files, pid, path, name)
+				os.Remove(path)
+				if err != nil {
+					res.Error = err.Error()
+					results = append(results, res)
+					continue
+				}
+				results = append(results, got...)
+				continue
+			}
+
 			blob, size, sum, err := files.Put(br)
 			part.Close()
 			if err != nil {
@@ -122,8 +170,18 @@ func (a *App) handleUpload(w http.ResponseWriter, r *http.Request) {
 			st.Log(pid, "you", "Added "+what, nil)
 			a.wakeReader()
 		}
+		if len(studies) > 0 {
+			linkReports(st, pid)
+		}
 		writeJSON(w, results)
 	})
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // sniff works out the media type from the content first, then the name.
@@ -224,8 +282,12 @@ func (a *App) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 			if err := store.UpdateDocumentTx(tx, d); err != nil {
 				return err
 			}
-			// Values read from the file belong to whoever the file does.
+			// Values read from the file, and an imaging study, belong to
+			// whoever the file does.
 			if err := store.MoveDocumentObservationsTx(tx, d.ID, d.PersonID); err != nil {
+				return err
+			}
+			if err := store.MoveStudyTx(tx, d.ID, d.PersonID); err != nil {
 				return err
 			}
 			// Logged on the profile it came from, where it can be undone.
@@ -250,6 +312,9 @@ func (a *App) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			storeErr(w, err)
 			return
+		}
+		if d.Mime == "application/dicom" {
+			deleteStudyBlobs(st, files, id) // before the study's rows go with the document
 		}
 		if err := st.DeleteDocument(id); err != nil {
 			storeErr(w, err)
@@ -279,6 +344,12 @@ func (a *App) handleDocumentFile(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			storeErr(w, err)
 			return
+		}
+		if d.Mime == "application/dicom" && r.URL.Query().Get("download") != "" {
+			if _, err := st.StudyOf(id); err == nil {
+				serveStudyZip(w, st, files, d)
+				return
+			}
 		}
 		rc, err := files.Open(d.Blob)
 		if err != nil {

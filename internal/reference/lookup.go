@@ -7,12 +7,20 @@ import (
 	"unicode"
 )
 
+// stopWords are words of a question, not of what it's about.
+var stopWords = map[string]bool{
+	"what": true, "is": true, "are": true, "the": true, "my": true, "a": true, "an": true, "of": true, "does": true, "do": true,
+	"mean": true, "means": true, "how": true, "about": true, "and": true, "or": true, "in": true, "on": true, "for": true,
+	"with": true, "to": true, "it": true, "this": true, "that": true, "can": true, "i": true, "me": true, "tell": true, "explain": true,
+	"why": true, "when": true, "should": true, "be": true, "have": true, "has": true, "was": true, "were": true,
+}
+
 // ftsQuery turns words into an FTS5 query: each word quoted (so nothing
 // in them is read as query syntax), all required, or any with or=true.
 func ftsQuery(q string, or bool) string {
 	var words []string
 	for _, w := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
-		if len(w) > 1 {
+		if len(w) > 1 && !stopWords[w] {
 			words = append(words, `"`+w+`"`)
 		}
 	}
@@ -33,6 +41,7 @@ func (r *Ref) Explain(q string, limit int) ([]Topic, error) {
 		return nil, nil
 	}
 	var ids []int64
+	partial := map[int64]bool{}
 	rows, err := r.db.Query(`SELECT id FROM topics WHERE title = ? COLLATE NOCASE OR ('\n' || also || '\n') LIKE ? LIMIT ?`,
 		q, "%\n"+q+"\n%", limit)
 	if err != nil {
@@ -52,6 +61,17 @@ func (r *Ref) Explain(q string, limit int) ([]Topic, error) {
 		if fq == "" {
 			break
 		}
+		// With several words, the topic's name must have at least one of
+		// them: "lung nodule" is in the text of the voice disorders topic
+		// (vocal nodules, the lungs), but that isn't what was asked.
+		if anyWord := ftsQuery(q, true); strings.Contains(anyWord, " OR ") {
+			named := "{title also} : (" + anyWord + ")"
+			if or {
+				fq = named
+			} else {
+				fq = "(" + named + ") AND " + fq
+			}
+		}
 		rows, err := r.db.Query(`SELECT rowid FROM topics_fts WHERE topics_fts MATCH ? ORDER BY bm25(topics_fts, 10.0, 6.0, 1.0) LIMIT ?`, fq, limit)
 		if err != nil {
 			return nil, err
@@ -61,6 +81,7 @@ func (r *Ref) Explain(q string, limit int) ([]Topic, error) {
 			rows.Scan(&id)
 			if !contains(ids, id) {
 				ids = append(ids, id)
+				partial[id] = or
 			}
 		}
 		rows.Close()
@@ -75,6 +96,7 @@ func (r *Ref) Explain(q string, limit int) ([]Topic, error) {
 		if err := r.db.QueryRow(`SELECT id, title, url, also, summary, groups FROM topics WHERE id = ?`, id).
 			Scan(&t.ID, &t.Title, &t.URL, &also, &t.Summary, &groups); err == nil {
 			t.Also, t.Groups = lines(also), lines(groups)
+			t.Partial = partial[id]
 			out = append(out, t)
 		}
 	}

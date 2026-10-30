@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DeGrandis/mymedical/internal/blobs"
 	"github.com/DeGrandis/mymedical/internal/ingest"
 	"github.com/DeGrandis/mymedical/internal/ollama"
 	"github.com/DeGrandis/mymedical/internal/reference"
@@ -64,6 +65,8 @@ type chartPoint struct {
 // toolEnv is one chat turn's view of the records.
 type toolEnv struct {
 	st    *store.Store
+	files *blobs.Store
+	set   Settings
 	ref   *reference.Ref // may be nil
 	pid   int64
 	today time.Time
@@ -113,6 +116,8 @@ var assistantTools = []ollama.Tool{
 		Parameters: obj(map[string]any{"name": str}, "name")},
 	{Name: "drug_interactions", Description: "Check whether the FDA labels of two or more medications mention each other in their drug interactions sections. Include every medication the person takes when asked about interactions.",
 		Parameters: obj(map[string]any{"drugs": map[string]any{"type": "array", "items": str, "description": "medication names, two or more"}}, "drugs")},
+	{Name: "describe_image", Description: "Look at an imaging study (X-ray, CT, MRI, ultrasound) with the vision model: what it shows and anything that stands out, read together with its report when one is linked. Use it when asked what an image shows.",
+		Parameters: obj(map[string]any{"id": describe("integer", "the imaging study's file id")}, "id")},
 	{Name: "lab_test", Description: "Look up a lab test by name: its standard (LOINC) name and units when available, and what MedlinePlus says about it.",
 		Parameters: obj(map[string]any{"name": str}, "name")},
 	{Name: "note_value", Description: "Save a measurement the user tells you: weight, blood pressure, glucose, temperature, a symptom score. Use the same name as existing measurements. For blood pressure save two: \"Blood pressure systolic\" and \"Blood pressure diastolic\" in mmHg.",
@@ -192,6 +197,8 @@ func (e *toolEnv) dispatch(name string, a map[string]any) (string, error) {
 		return e.drugInteractions(strList(a["drugs"]))
 	case "lab_test":
 		return e.labTest(sArg(a, "name"))
+	case "describe_image":
+		return e.describeImage(iArg(a, "id"))
 	case "update_profile":
 		return e.updateProfile(sArg(a, "field"), sArg(a, "action"), sArg(a, "value"), sArg(a, "name"), sArg(a, "detail"), sArg(a, "since"))
 	}

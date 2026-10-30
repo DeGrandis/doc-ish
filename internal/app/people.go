@@ -133,6 +133,12 @@ func (a *App) handleDeletePerson(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, "this is the only profile; add another before deleting it")
 			return
 		}
+		docs, _ := st.Documents(id, "", 100000)
+		for _, d := range docs {
+			if d.Mime == "application/dicom" {
+				deleteStudyBlobs(st, files, d.ID)
+			}
+		}
 		names, err := st.DeletePerson(id)
 		if err != nil {
 			storeErr(w, err)
