@@ -18,7 +18,8 @@ type docView struct {
 	Result     *json.RawMessage    `json:"result,omitempty"`
 	Values     []store.Observation `json:"values"`
 	ValueCount int                 `json:"value_count"`
-	Recipe     *store.Recipe       `json:"recipe,omitempty"` // a draft waiting for approval, or the recipe that read it
+	Recipe     *store.Recipe       `json:"recipe,omitempty"`   // a draft waiting for approval, or the recipe that read it
+	Sections   []store.Section     `json:"sections,omitempty"` // the records inside a long file
 }
 
 // maxValuesShown caps the values sent with a file: a device export can
@@ -27,6 +28,7 @@ const maxValuesShown = 300
 
 func viewOf(st *store.Store, d store.Document) docView {
 	v := docView{Document: d, Values: []store.Observation{}}
+	v.Sections, _ = st.DocumentSections(d.ID)
 	if d.Extracted != "" {
 		raw := json.RawMessage(d.Extracted)
 		v.Result = &raw
@@ -137,7 +139,11 @@ func (a *App) handleAccept(w http.ResponseWriter, r *http.Request) {
 			if err := store.DeleteObservationsTx(tx, old); err != nil {
 				return err
 			}
-			ids, err := addValues(tx, d, res)
+			secs, err := addSections(tx, d, res)
+			if err != nil {
+				return err
+			}
+			ids, err := addValues(tx, d, res, secs)
 			if err != nil {
 				return err
 			}
@@ -148,7 +154,7 @@ func (a *App) handleAccept(w http.ResponseWriter, r *http.Request) {
 			if err := store.DeleteFollowUpsTx(tx, oldFollows); err != nil {
 				return err
 			}
-			follows, err := addFollowUps(tx, d, res)
+			follows, err := addFollowUps(tx, d, res, secs)
 			if err != nil {
 				return err
 			}
@@ -203,6 +209,16 @@ func (a *App) handleReread(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			if err := store.DeleteObservationsTx(tx, old); err != nil {
+				return err
+			}
+			follows, err := store.DocumentFollowUpIDsTx(tx, id)
+			if err != nil {
+				return err
+			}
+			if err := store.DeleteFollowUpsTx(tx, follows); err != nil {
+				return err
+			}
+			if err := store.DeleteDocumentSectionsTx(tx, id); err != nil {
 				return err
 			}
 			d.Status, d.ReviewReason, d.Extracted = store.StatusNew, "", ""
@@ -330,6 +346,11 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 		if u.Op == "read" {
 			d.Extracted = ""
 		}
+		if u.Op == "read" || u.Op == "accept" {
+			if err := store.DeleteDocumentSectionsTx(tx, d.ID); err != nil {
+				return err
+			}
+		}
 		if err := store.UpdateDocumentTx(tx, d); err != nil {
 			return err
 		}
@@ -337,6 +358,9 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 			return err
 		}
 		if err := store.MoveDocumentFollowUpsTx(tx, d.ID, d.PersonID); err != nil {
+			return err
+		}
+		if err := store.MoveDocumentSectionsTx(tx, d.ID, d.PersonID); err != nil {
 			return err
 		}
 		if u.PrevProfile == nil {

@@ -20,7 +20,7 @@ import (
 
 // addFollowUps files a result's follow-ups for the file's owner, each due
 // counted from the note that said it.
-func addFollowUps(tx *sql.Tx, d store.Document, res ingest.Result) ([]int64, error) {
+func addFollowUps(tx *sql.Tx, d store.Document, res ingest.Result, secs []int64) ([]int64, error) {
 	open, err := store.OpenFollowUpsTx(tx, d.PersonID)
 	if err != nil {
 		return nil, err
@@ -33,6 +33,9 @@ func addFollowUps(tx *sql.Tx, d store.Document, res ingest.Result) ([]int64, err
 	docID := d.ID
 	for _, f := range res.FollowUps {
 		from := f.From
+		if from == "" && f.Section > 0 && f.Section <= len(res.Sections) {
+			from = res.Sections[f.Section-1].Date
+		}
 		if from == "" {
 			from = res.DocDate
 		}
@@ -49,7 +52,7 @@ func addFollowUps(tx *sql.Tx, d store.Document, res ingest.Result) ([]int64, err
 			have[k] = true
 		}
 		id, err := store.AddFollowUpTx(tx, store.FollowUp{PersonID: d.PersonID, DocumentID: &docID, What: f.What, When: f.When,
-			Due: due, From: from, Source: "reader"})
+			Due: due, From: from, Source: "reader", SectionID: sectionID(secs, f.Section)})
 		if err != nil {
 			return nil, err
 		}

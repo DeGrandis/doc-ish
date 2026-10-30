@@ -127,6 +127,8 @@ var columns = []struct{ table, col, def string }{
 	{"activity", "document_id", "INTEGER"},               // the file a change was about
 	{"messages", "extra", "TEXT NOT NULL DEFAULT ''"},    // charts, opened files and changes shown with an answer
 	{"documents", "recipe_id", "INTEGER"},                // the import recipe that read it
+	{"observations", "section_id", "INTEGER"},            // the record in a long file it's from
+	{"followups", "section_id", "INTEGER"},
 }
 
 const activitySchema = `
@@ -162,7 +164,7 @@ CREATE INDEX IF NOT EXISTS observations_document ON observations(document_id);
 `
 
 func (s *Store) migrate() error {
-	if _, err := s.db.Exec(schema + activitySchema + imagingSchema + followUpSchema); err != nil {
+	if _, err := s.db.Exec(schema + activitySchema + imagingSchema + followUpSchema + sectionSchema); err != nil {
 		return err
 	}
 	for _, c := range columns {

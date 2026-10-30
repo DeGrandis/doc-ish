@@ -444,11 +444,14 @@ func (a *App) file(st *store.Store, d store.Document, res ingest.Result, cont in
 		}
 		var ids, follows, closed []int64
 		if d.Status == store.StatusDone {
-			var err error
-			if ids, err = addValues(tx, d, res); err != nil {
+			secs, err := addSections(tx, d, res)
+			if err != nil {
 				return err
 			}
-			if follows, err = addFollowUps(tx, d, res); err != nil {
+			if ids, err = addValues(tx, d, res, secs); err != nil {
+				return err
+			}
+			if follows, err = addFollowUps(tx, d, res, secs); err != nil {
 				return err
 			}
 			if closed, err = closeFollowUps(tx, d.PersonID); err != nil {
@@ -474,8 +477,30 @@ func (a *App) file(st *store.Store, d store.Document, res ingest.Result, cont in
 	})
 }
 
+// addSections stores the records found inside a long file, in order, and
+// returns their ids (a file that is one record has none).
+func addSections(tx *sql.Tx, d store.Document, res ingest.Result) ([]int64, error) {
+	if err := store.DeleteDocumentSectionsTx(tx, d.ID); err != nil {
+		return nil, err
+	}
+	var secs []store.Section
+	for i, s := range res.Sections {
+		secs = append(secs, store.Section{DocumentID: d.ID, PersonID: d.PersonID, Index: i + 1, FirstPage: s.First, LastPage: s.Last,
+			Kind: s.Kind, Title: s.Title, Date: s.Date, Provider: s.Provider, Summary: s.Summary})
+	}
+	return store.AddSectionsTx(tx, secs)
+}
+
+// sectionID is the stored id of a result's section n (from 1), if any.
+func sectionID(secs []int64, n int) *int64 {
+	if n < 1 || n > len(secs) {
+		return nil
+	}
+	return &secs[n-1]
+}
+
 // addValues stores a result's values as observations of the file's owner.
-func addValues(tx *sql.Tx, d store.Document, res ingest.Result) ([]int64, error) {
+func addValues(tx *sql.Tx, d store.Document, res ingest.Result, secs []int64) ([]int64, error) {
 	var ids []int64
 	docID := d.ID
 	for _, v := range res.Observations {
@@ -488,7 +513,7 @@ func addValues(tx *sql.Tx, d store.Document, res ingest.Result) ([]int64, error)
 		}
 		id, err := store.AddObservationTx(tx, store.Observation{
 			PersonID: d.PersonID, Name: v.Name, Value: v.Value, ValueText: v.ValueText, Unit: v.Unit,
-			RefLow: v.RefLow, RefHigh: v.RefHigh, Flag: v.Flag, Observed: when, DocumentID: &docID, Source: "document",
+			RefLow: v.RefLow, RefHigh: v.RefHigh, Flag: v.Flag, Observed: when, DocumentID: &docID, SectionID: sectionID(secs, v.Section), Source: "document",
 		})
 		if err != nil {
 			return nil, err

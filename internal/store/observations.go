@@ -19,7 +19,8 @@ type Observation struct {
 	Flag       string   `json:"flag,omitempty"`
 	Observed   string   `json:"observed"`
 	DocumentID *int64   `json:"document_id,omitempty"`
-	Source     string   `json:"source"` // profile, chat, document
+	SectionID  *int64   `json:"section_id,omitempty"` // in a long file, the record it's from
+	Source     string   `json:"source"`               // profile, chat, document
 	Note       string   `json:"note,omitempty"`
 	Added      string   `json:"added"`
 }
@@ -50,16 +51,16 @@ func AddObservationTx(tx *sql.Tx, o Observation) (int64, error) {
 }
 
 func addObservation(db execer, o Observation) (int64, error) {
-	res, err := db.Exec(`INSERT INTO observations(person_id, name, code, value, value_text, unit, ref_low, ref_high, flag, observed, document_id, source, note, added)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		o.PersonID, o.Name, o.Code, o.Value, o.ValueText, o.Unit, o.RefLow, o.RefHigh, o.Flag, o.Observed, o.DocumentID, o.Source, o.Note, now())
+	res, err := db.Exec(`INSERT INTO observations(person_id, name, code, value, value_text, unit, ref_low, ref_high, flag, observed, document_id, section_id, source, note, added)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		o.PersonID, o.Name, o.Code, o.Value, o.ValueText, o.Unit, o.RefLow, o.RefHigh, o.Flag, o.Observed, o.DocumentID, o.SectionID, o.Source, o.Note, now())
 	if err != nil {
 		return 0, err
 	}
 	return res.LastInsertId()
 }
 
-const obsCols = `id, person_id, name, code, value, value_text, unit, ref_low, ref_high, flag, observed, document_id, source, note, added`
+const obsCols = `id, person_id, name, code, value, value_text, unit, ref_low, ref_high, flag, observed, document_id, source, note, added, section_id`
 
 func (s *Store) observations(where string, args ...any) ([]Observation, error) {
 	rows, err := s.db.Query(`SELECT `+obsCols+` FROM observations WHERE `+where, args...)
@@ -71,7 +72,7 @@ func (s *Store) observations(where string, args ...any) ([]Observation, error) {
 	for rows.Next() {
 		var o Observation
 		if err := rows.Scan(&o.ID, &o.PersonID, &o.Name, &o.Code, &o.Value, &o.ValueText, &o.Unit, &o.RefLow, &o.RefHigh,
-			&o.Flag, &o.Observed, &o.DocumentID, &o.Source, &o.Note, &o.Added); err != nil {
+			&o.Flag, &o.Observed, &o.DocumentID, &o.Source, &o.Note, &o.Added, &o.SectionID); err != nil {
 			return nil, err
 		}
 		out = append(out, o)
@@ -171,7 +172,7 @@ func SourceObservationsTx(tx *sql.Tx, personID int64, source string) ([]Observat
 	for rows.Next() {
 		var o Observation
 		if err := rows.Scan(&o.ID, &o.PersonID, &o.Name, &o.Code, &o.Value, &o.ValueText, &o.Unit, &o.RefLow, &o.RefHigh,
-			&o.Flag, &o.Observed, &o.DocumentID, &o.Source, &o.Note, &o.Added); err != nil {
+			&o.Flag, &o.Observed, &o.DocumentID, &o.Source, &o.Note, &o.Added, &o.SectionID); err != nil {
 			return nil, err
 		}
 		out = append(out, o)

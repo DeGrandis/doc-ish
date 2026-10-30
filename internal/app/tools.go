@@ -366,6 +366,12 @@ func (e *toolEnv) readFile(id int64) (string, error) {
 	if d.Status == store.StatusReview && d.ReviewReason != "" {
 		b.WriteString("Waiting for the user to check it because: " + strings.ReplaceAll(d.ReviewReason, "\n", "; ") + "\n")
 	}
+	if secs, _ := e.st.DocumentSections(id); len(secs) > 0 {
+		b.WriteString("Records inside it:\n")
+		for _, s := range secs {
+			b.WriteString("- " + sectionLine(s) + "\n")
+		}
+	}
 	if vals, _ := e.st.DocumentObservations(id); len(vals) > 0 {
 		b.WriteString("Values:\n")
 		for _, o := range vals {
@@ -387,6 +393,18 @@ func (e *toolEnv) readFile(id int64) (string, error) {
 	}
 	e.note("read_file", "Read: "+titleOf(d), d.ID)
 	return b.String(), nil
+}
+
+// sectionLine is one record inside a long file, for the assistant.
+func sectionLine(s store.Section) string {
+	line := fmt.Sprintf("pages %d–%d: %s, “%s”, %s", s.FirstPage, s.LastPage, s.Kind, s.Title, or(s.Date, "no date"))
+	if s.Provider != "" {
+		line += ", " + s.Provider
+	}
+	if s.Summary != "" {
+		line += ". " + s.Summary
+	}
+	return line
 }
 
 func titleOf(d store.Document) string {

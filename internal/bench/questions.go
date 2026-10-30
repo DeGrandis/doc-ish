@@ -33,7 +33,8 @@ var reads = []Item{
 		"(the watch's count, not watch plus phone), 30 blood pressures, 7 hours' sleep a night; latex and ferrous sulfate added to the profile"},
 	{ID: "read long records PDF", Ask: "(drop a 24-page records release)", Must: "read in parts, every value under its own date: a lab table over " +
 		"four pages with the dates only above its first rows (ferritin 18, sodium 140 and B12 410 on 2025-09-12; LDL 151 and iron 72 on 2026-03-12; " +
-		"no ferritin on 2025-03-10, where it's blank), at least 72 of the table's 80 values, and the visit's weight of 171 on 2025-03-10"},
+		"no ferritin on 2025-03-10, where it's blank), at least 72 of the table's 80 values, the visit's weight of 171 on 2025-03-10, " +
+		"and the records inside found as their own sections: the visits of 2025-03-10, 2025-09-12 and 2026-03-12 and the lab table, by page"},
 }
 
 // scanItem is the same release as a scan: read by Tesseract, and by the
@@ -364,7 +365,21 @@ type longResult struct {
 		ValueText string   `json:"value_text"`
 		Date      string   `json:"date"`
 	} `json:"observations"`
+	Sections []struct {
+		First int    `json:"first"`
+		Last  int    `json:"last"`
+		Kind  string `json:"kind"`
+		Date  string `json:"date"`
+	} `json:"sections"`
 }
+
+// releaseRecords are the records inside the invented release that the
+// reader must find as sections of their own: the three visits, by the
+// page each starts on, and the lab table over pages 4 to 7.
+var releaseRecords = []struct {
+	page       int
+	kind, date string
+}{{2, "visit", "2025-03-10"}, {4, "lab", ""}, {8, "visit", "2025-09-12"}, {22, "visit", "2026-03-12"}}
 
 // labWords are what a value's name may be called, for each test in the
 // invented records' table.
@@ -427,6 +442,23 @@ func readLong(s *session, item Item, status string, r *longResult, secs float64)
 				if strings.Contains(strings.ToLower(o.Name), "ferritin") && (o.Date == "2025-03-10" || o.Date == "" && r.DocDate == "2025-03-10") {
 					return "a ferritin dated 2025-03-10, where the table is blank"
 				}
+			}
+			return ""
+		},
+		func(*session, string, []string) string {
+			var missed []string
+			for _, want := range releaseRecords {
+				ok := false
+				for _, s := range r.Sections {
+					ok = ok || s.First == want.page && s.Kind == want.kind && (want.date == "" || s.Date == want.date) &&
+						(want.kind != "lab" || s.Last >= 7)
+				}
+				if !ok {
+					missed = append(missed, fmt.Sprintf("%s from page %d", want.kind, want.page))
+				}
+			}
+			if len(missed) > 0 {
+				return fmt.Sprintf("records not found as their own sections (%d found in all): %s", len(r.Sections), strings.Join(missed, ", "))
 			}
 			return ""
 		},

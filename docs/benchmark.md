@@ -27,8 +27,10 @@ pages of handouts, and a cumulative lab table (three collection dates as
 columns) over four pages with the dates printed only above its first
 rows, and some cells blank. It's read a few pages at a time, and graded on
 values from the later pages under their right dates, on not dating a
-value to a blank column, and on getting at least 72 of the table's 80
-values.
+value to a blank column, on getting at least 72 of the table's 80
+values, and on finding the records inside it as sections of their own:
+the three visits by their first page and date, and the lab table over
+pages 4 to 7.
 
 The same release goes in a second time as a scan (every page a 130 dpi
 image, no text), and is graded the same way after Tesseract reads it.

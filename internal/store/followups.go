@@ -47,16 +47,17 @@ type FollowUp struct {
 	DoneDate       string `json:"done_date"`
 	DoneNote       string `json:"done_note"`
 	DoneDocumentID *int64 `json:"done_document_id"`
+	SectionID      *int64 `json:"section_id,omitempty"` // in a long file, the record that said it
 	Source         string `json:"source"`
 	Added          string `json:"added"`
 }
 
-const followUpCols = `id, person_id, document_id, what, when_text, due, from_date, status, done_date, done_note, done_document_id, source, added`
+const followUpCols = `id, person_id, document_id, what, when_text, due, from_date, status, done_date, done_note, done_document_id, source, added, section_id`
 
 func scanFollowUp(row interface{ Scan(...any) error }) (FollowUp, error) {
 	var f FollowUp
 	var doc, done sql.NullInt64
-	err := row.Scan(&f.ID, &f.PersonID, &doc, &f.What, &f.When, &f.Due, &f.From, &f.Status, &f.DoneDate, &f.DoneNote, &done, &f.Source, &f.Added)
+	err := row.Scan(&f.ID, &f.PersonID, &doc, &f.What, &f.When, &f.Due, &f.From, &f.Status, &f.DoneDate, &f.DoneNote, &done, &f.Source, &f.Added, &f.SectionID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return f, ErrNotFound
 	}
@@ -73,9 +74,9 @@ func AddFollowUpTx(tx *sql.Tx, f FollowUp) (int64, error) {
 	if f.Status == "" {
 		f.Status = FollowUpOpen
 	}
-	res, err := tx.Exec(`INSERT INTO followups (person_id, document_id, what, when_text, due, from_date, status, done_date, done_note, done_document_id, source, added)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		f.PersonID, f.DocumentID, f.What, f.When, f.Due, f.From, f.Status, f.DoneDate, f.DoneNote, f.DoneDocumentID, f.Source, now())
+	res, err := tx.Exec(`INSERT INTO followups (person_id, document_id, what, when_text, due, from_date, status, done_date, done_note, done_document_id, source, added, section_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.PersonID, f.DocumentID, f.What, f.When, f.Due, f.From, f.Status, f.DoneDate, f.DoneNote, f.DoneDocumentID, f.Source, now(), f.SectionID)
 	if err != nil {
 		return 0, err
 	}

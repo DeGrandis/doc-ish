@@ -300,6 +300,9 @@ func (a *App) handleUpdateDocument(w http.ResponseWriter, r *http.Request) {
 			if err := store.MoveDocumentFollowUpsTx(tx, d.ID, d.PersonID); err != nil {
 				return err
 			}
+			if err := store.MoveDocumentSectionsTx(tx, d.ID, d.PersonID); err != nil {
+				return err
+			}
 			if err := store.MoveStudyTx(tx, d.ID, d.PersonID); err != nil {
 				return err
 			}

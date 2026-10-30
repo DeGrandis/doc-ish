@@ -399,7 +399,7 @@ function refreshView() {
 
 function route() {
   const h = location.hash.slice(1) || "home";
-  const [tab, sub, id] = h.split("/");
+  const [tab, sub, id, , page] = h.split("/");
   const known = ["home", "timeline", "files", "review", "activity", "profile", "settings"];
   const t = known.includes(tab) ? tab : "home";
   $$(".tab").forEach(s => s.classList.toggle("on", s.id === t));
@@ -409,7 +409,7 @@ function route() {
   if (!state.person) return;
   if (t === "home") {
     renderSummary();
-    if (sub === "doc" && +id) openDoc(+id); else closeViewer();
+    if (sub === "doc" && +id) openDoc(+id, +page || 0); else closeViewer();
   }
   if (t === "timeline") renderTimeline();
   if (t === "files") renderFiles();
@@ -527,12 +527,14 @@ document.addEventListener("click", async e => {
 
 let tlFilter = "";
 const tlGroups = {
-  visit: e => e.type === "file" && ["visit", "prescription"].includes(e.kind),
-  lab: e => e.type === "file" && e.kind === "lab" || e.type === "followup",
-  imaging: e => e.type === "file" && e.kind === "imaging",
-  meds: e => ["medication", "condition", "surgery"].includes(e.type) || e.type === "file" && e.kind === "prescription",
-  vaccine: e => e.type === "vaccination" || e.type === "file" && e.kind === "vaccination",
+  visit: e => isRecord(e) && ["visit", "prescription"].includes(e.kind),
+  lab: e => isRecord(e) && e.kind === "lab" || e.type === "followup",
+  imaging: e => isRecord(e) && e.kind === "imaging",
+  meds: e => ["medication", "condition", "surgery"].includes(e.type) || isRecord(e) && e.kind === "prescription",
+  vaccine: e => e.type === "vaccination" || isRecord(e) && e.kind === "vaccination",
 };
+// A file, or a record inside a long one (a visit in a records release).
+const isRecord = e => e.type === "file" || e.type === "section";
 const tlTags = { medication: "medication", condition: "diagnosis", surgery: "surgery", vaccination: "vaccine", followup: "follow-up" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -551,12 +553,13 @@ async function renderTimeline() {
     const y = e.date.slice(0, 4);
     if (y !== year) { out += `${year ? "</ol>" : ""}<h2 class="tl-year">${esc(y)}</h2><ol class="tl">`; year = y; }
     const day = e.date.length >= 10 ? `${MONTHS[+e.date.slice(5, 7) - 1]} ${+e.date.slice(8, 10)}` : "";
-    const tag = e.type === "file" ? (e.kind || "file") : tlTags[e.type];
-    const title = e.doc_id ? `<button type="button" class="link tl-title" data-doc="${e.doc_id}">${esc(e.title)}</button>` : `<span class="tl-title">${esc(e.title)}</span>`;
+    const tag = isRecord(e) ? (e.kind || "file") : tlTags[e.type];
+    const title = e.doc_id ? `<button type="button" class="link tl-title" data-doc="${e.doc_id}"${e.page ? ` data-page="${e.page}"` : ""}>${esc(e.title)}</button>` : `<span class="tl-title">${esc(e.title)}</span>`;
+    const where = e.type === "section" ? `<span class="small muted">page ${e.page}</span>` : "";
     out += `<li class="tl-item t-${esc(e.type)}">
       <span class="tl-date">${day}</span>
       <div class="tl-body">
-        <div class="tl-head">${title}<span class="tag">${esc(tag)}</span>${e.status === "review" ? `<span class="tag look">needs a look</span>` : ""}</div>
+        <div class="tl-head">${title}<span class="tag">${esc(tag)}</span>${where}${e.status === "review" ? `<span class="tag look">needs a look</span>` : ""}</div>
         ${e.detail ? `<p class="tl-detail">${esc(e.detail)}</p>` : ""}
         ${(e.flags || []).length ? `<div class="tl-flags">${e.flags.map(f => `<span class="chip warn">${esc(f)}</span>`).join("")}${e.more_flags ? `<span class="small muted">+${e.more_flags} more</span>` : ""}</div>` : ""}
       </div>
@@ -574,7 +577,7 @@ $("#tl-filter").addEventListener("click", e => {
 });
 $("#tl-list").addEventListener("click", e => {
   const b = e.target.closest("[data-doc]");
-  if (b) location.hash = `#home/doc/${b.dataset.doc}`;
+  if (b) location.hash = `#home/doc/${b.dataset.doc}` + (b.dataset.page ? `/p/${b.dataset.page}` : "");
 });
 $("#follow-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -588,7 +591,7 @@ $("#follow-form").addEventListener("submit", async e => {
 
 // ---------- Home: viewer ----------
 
-async function openDoc(id) {
+async function openDoc(id, page) {
   let d;
   try { d = await api("GET", `/api/documents/${id}`); }
   catch (err) { toast(err.message, true); location.hash = "#home"; return; }
@@ -618,7 +621,8 @@ async function openDoc(id) {
     ${statusBox(d)}
     ${d.summary ? `<p class="viewer-summary">${esc(d.summary)}</p>` : ""}
     ${d.recipe && d.recipe.status !== "proposed" ? `<p class="small muted">Read with the import recipe “${esc(d.recipe.name)}”.</p>` : ""}
-    ${found && found.length ? `<span class="eyebrow">${d.status === "review" ? "Found, not filed yet" : d.value_count > found.length ? `Values (the first ${found.length} of ${d.value_count}; ask the assistant for a chart of all of them)` : "Values"}</span>${valuesTable(found)}` : ""}
+    ${sectionList(d)}
+    <div id="viewer-values">${found && found.length ? `<span class="eyebrow">${d.status === "review" ? "Found, not filed yet" : d.value_count > found.length ? `Values (the first ${found.length} of ${d.value_count}; ask the assistant for a chart of all of them)` : "Values"}</span>${valuesTable(found)}` : ""}</div>
     ${d.result && d.result.medications && d.result.medications.length ? `<span class="eyebrow">Medications mentioned</span><ul class="meds">${d.result.medications.map(m => `<li>${esc(m.name)}${m.detail ? ` <span class="muted">${esc(m.detail)}</span>` : ""}</li>`).join("")}</ul>` : ""}
     <div class="viewer-body" id="viewer-body"></div>
     <details class="viewer-meta">
@@ -634,9 +638,12 @@ async function openDoc(id) {
     </details>`;
   const body = $("#viewer-body");
   const m = d.mime || "";
+  viewing = d;
   if (m.startsWith("image/") && m !== "image/heic") body.innerHTML = `<img src="${src}" alt="${esc(d.title || d.filename)}">`;
-  else if (m === "application/pdf") body.innerHTML = `<iframe src="${src}" title="${esc(d.filename)}"></iframe>`;
-  else if (!m.includes("officedocument") && (m.startsWith("text/") || m.includes("json") || m.includes("xml"))) {
+  else if (m === "application/pdf") {
+    body.innerHTML = `<iframe src="${src}" title="${esc(d.filename)}"></iframe>`;
+    if (page && (d.sections || []).length) showSection(d.sections.find(s => page >= s.first_page && page <= s.last_page) || d.sections[0]);
+  } else if (!m.includes("officedocument") && (m.startsWith("text/") || m.includes("json") || m.includes("xml"))) {
     body.innerHTML = `<p class="small muted">Loading…</p>`;
     const text = await (await fetch(src)).text();
     if (state.viewing !== id) return;
@@ -647,6 +654,41 @@ async function openDoc(id) {
     body.innerHTML = `<p class="small muted">This kind of file can't be shown here. Download it to open it.</p>`;
   }
 }
+
+// A long file with many records in it (a records release) lists them,
+// each with its date and pages; picking one shows its values and turns
+// the PDF to its first page.
+let viewing = null;
+function sectionList(d) {
+  const secs = d.sections || [];
+  if (!secs.length) return "";
+  return `<span class="eyebrow">Inside this file · ${secs.length} records</span>
+    <ul class="sec-list">${secs.map(s => `<li><button type="button" data-sec="${s.id}">
+      <span class="d">${esc(s.date || "")}</span><span class="t">${esc(s.title || s.kind)}</span>
+      <span class="tag">${esc(s.kind)}</span><span class="p">${s.first_page === s.last_page ? `p. ${s.first_page}` : `pp. ${s.first_page}–${s.last_page}`}</span>
+    </button></li>`).join("")}</ul>`;
+}
+
+function showSection(s) {
+  const d = viewing;
+  if (!d || !s) return;
+  $$("#viewer .sec-list button").forEach(b => b.classList.toggle("on", +b.dataset.sec === s.id));
+  const vals = d.values.filter(v => v.section_id === s.id);
+  $("#viewer-values").innerHTML = `<div class="sec-pick">
+      <strong>${esc(s.title || s.kind)}</strong>${s.date ? ` · ${esc(s.date)}` : ""}${s.provider ? ` · ${esc(s.provider)}` : ""}
+      <button type="button" class="link small" data-sec-all>All of the file</button>
+      ${s.summary ? `<p class="small">${esc(s.summary)}</p>` : ""}
+    </div>
+    ${vals.length ? `<span class="eyebrow">Values in this record</span>${valuesTable(vals)}` : ""}`;
+  const f = $("#viewer-body iframe");
+  if (f) f.src = `/api/documents/${d.id}/file?s=${s.id}#page=${s.first_page}`; // the query makes the viewer reload at the page
+}
+
+$("#viewer").addEventListener("click", e => {
+  const b = e.target.closest("[data-sec]");
+  if (b && viewing) return showSection(viewing.sections.find(s => s.id === +b.dataset.sec));
+  if (e.target.closest("[data-sec-all]") && viewing) openDoc(viewing.id);
+});
 
 // statusBox says where a file stands, with what can be done about it.
 function statusBox(d) {
@@ -822,6 +864,7 @@ let stopViewer = null, chatScroll = null;
 function closeViewer() {
   if (stopViewer) { stopViewer(); stopViewer = null; }
   const wasViewing = state.viewing;
+  viewing = null;
   state.viewing = 0;
   $(".home").classList.remove("viewing");
   $("#viewer").hidden = true;

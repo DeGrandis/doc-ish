@@ -412,11 +412,30 @@ func splitLines(text string, size int) []string {
 
 const partInstructions = `
 
-This is one part of a long file, read a few pages at a time. Describe only these pages. Give every observation its date (YYYY-MM-DD), the day it was collected or measured, from these pages or the context given; a long file covers many dates. Never copy anything from the context: it's only there so you know where these pages are. If these pages have no results, leave observations empty.`
+This is one part of a long file, read a few pages at a time. Describe only these pages. Give every observation its date (YYYY-MM-DD), the day it was collected or measured, from these pages or the context given; a long file covers many dates. Never copy anything from the context: it's only there so you know where these pages are. If these pages have no results, leave observations empty.
+- pages: one entry for each page here ([page N]), saying which record in the file it belongs to. A long file often holds many records: visit notes, lab reports, imaging reports, letters, forms, handouts. page: its number. new_record: true when a new record starts on this page, false when the page continues the record before it (also when that record began on the pages before these). kind, title (the record's own heading, like "Visit note" or "Cumulative laboratory results"), date (YYYY-MM-DD: that record's visit, collection or report date, from the page or the context; empty if it has none) and provider, for the record the page belongs to. about: one short sentence on what the page holds.`
+
+// partSchema is the reader's answer plus what each page is.
+var partSchema = func() map[string]any {
+	props := map[string]any{}
+	for k, v := range schema["properties"].(map[string]any) {
+		props[k] = v
+	}
+	props["pages"] = map[string]any{"type": "array", "items": map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"page": map[string]any{"type": "integer"}, "new_record": map[string]any{"type": "boolean"},
+			"kind": map[string]any{"type": "string", "enum": Kinds}, "title": map[string]any{"type": "string"},
+			"date": map[string]any{"type": "string"}, "provider": map[string]any{"type": "string"}, "about": map[string]any{"type": "string"},
+		},
+		"required": []string{"page", "new_record", "kind", "title", "date", "provider", "about"},
+	}}
+	return map[string]any{"type": "object", "properties": props, "required": append(append([]string{}, schema["required"].([]string)...), "pages")}
+}()
 
 var errNoVision = errors.New("no model for images is picked in Settings")
 
-func readPart(ctx context.Context, c ollama.Chatter, req Request, p part, total int, repeated []string) (Result, error) {
+func readPart(ctx context.Context, c ollama.Chatter, req Request, p part, total int, repeated []string, before *PageLabel) (Result, error) {
 	model := req.ChatModel
 	if len(p.images) > 0 {
 		if model = req.VisionModel; model == "" {
@@ -429,8 +448,11 @@ func readPart(ctx context.Context, c ollama.Chatter, req Request, p part, total 
 	if len(repeated) > 0 {
 		fmt.Fprintf(&u, "\nPrinted at the top or bottom of every page (taken off the pages below):\n%s\n", strings.Join(repeated, "\n"))
 	}
-	if p.carried != "" {
+	if p.carried != "" || before != nil {
 		fmt.Fprintf(&u, "\nContext from the pages before (don't copy values from it):\n%s", p.carried)
+		if before != nil {
+			fmt.Fprintf(&u, "- Page %d was part of: %s, “%s”, %s\n", before.Page, before.Kind, before.Title, or(before.Date, "no date"))
+		}
 	}
 	if t := strings.TrimSpace(p.text); t != "" {
 		fmt.Fprintf(&u, "\nThe text of these pages:\n<<<\n%s\n>>>\n", t)
@@ -446,7 +468,7 @@ func readPart(ctx context.Context, c ollama.Chatter, req Request, p part, total 
 		Model:    model,
 		Messages: []ollama.Message{{Role: "system", Content: instructions + partInstructions}, msg},
 		NumCtx:   req.NumCtx,
-	}, schema)
+	}, partSchema)
 	if err != nil {
 		return Result{}, err
 	}
@@ -486,6 +508,7 @@ func readLong(ctx context.Context, c ollama.Chatter, req Request) (Result, error
 	queue := planParts(req.Content, pages)
 	total := max(req.Content.Pages, len(pages))
 	var done []partResult
+	var before *PageLabel // the last page read, so the next part knows what record it was in
 	for len(queue) > 0 {
 		p := queue[0]
 		queue = queue[1:]
@@ -493,7 +516,7 @@ func readLong(ctx context.Context, c ollama.Chatter, req Request) (Result, error
 			req.Progress(fmt.Sprintf("reading %s of %d", strings.ToLower(p.pages()), total), len(done), len(done)+len(queue)+2)
 		}
 		pctx, cancel := context.WithTimeout(ctx, partTimeout)
-		res, err := readPart(pctx, c, req, p, total, repeated)
+		res, err := readPart(pctx, c, req, p, total, repeated, before)
 		timedOut := pctx.Err() != nil && ctx.Err() == nil
 		cancel()
 		switch {
@@ -514,6 +537,11 @@ func readLong(ctx context.Context, c ollama.Chatter, req Request) (Result, error
 			return Result{}, err // Ollama is down or the model is missing: try the whole file later
 		}
 		done = append(done, partResult{p, res, err})
+		for i := range res.Pages {
+			if l := res.Pages[i]; l.Page >= p.first && l.Page <= p.last && (before == nil || l.Page >= before.Page) {
+				before = &l
+			}
+		}
 	}
 	sort.SliceStable(done, func(i, j int) bool { return done[i].first < done[j].first })
 	out := merge(req, done)
@@ -527,6 +555,7 @@ func readLong(ctx context.Context, c ollama.Chatter, req Request) (Result, error
 // merge puts the parts' answers together.
 func merge(req Request, parts []partResult) Result {
 	var out Result
+	out.Sections = sectionsOf(parts)
 	seen := map[string]bool{}
 	meds := map[string]bool{}
 	names := map[string]int{}
@@ -555,6 +584,7 @@ func merge(req Request, parts []partResult) Result {
 			if v.Date == "" {
 				v.Date = r.DocDate
 			}
+			v.Section = sectionFor(out.Sections, p.part, v.Date, true)
 			k := strings.ToLower(fmt.Sprintf("%s|%v|%s|%s|%s", v.Name, num(v.Value), v.ValueText, v.Unit, v.Date))
 			if seen[k] {
 				continue
@@ -573,6 +603,7 @@ func merge(req Request, parts []partResult) Result {
 			if f.From == "" {
 				f.From = r.DocDate
 			}
+			f.Section = sectionFor(out.Sections, p.part, f.From, false)
 			k := strings.ToLower(f.What + "|" + f.From)
 			if f.What == "" || seen["follow:"+k] {
 				continue
@@ -604,6 +635,7 @@ func merge(req Request, parts []partResult) Result {
 		questions = append(questions[:maxQuestions-1], fmt.Sprintf("…and %d more notes like these.", len(questions)-maxQuestions+1))
 	}
 	out.Questions = questions
+	finishSections(&out)
 	return out
 }
 

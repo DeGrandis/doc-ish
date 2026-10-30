@@ -27,6 +27,34 @@ type Result struct {
 	FollowUps    []FollowUp `json:"follow_ups"`
 	Confidence   string     `json:"confidence"` // high, medium, low
 	Questions    []string   `json:"questions"`
+	// A long file with several records in it (a records release: visit
+	// notes, lab reports, letters) has a section for each, and its values
+	// and follow-ups say which section they came from.
+	Sections []Section `json:"sections,omitempty"`
+	// Pages is what a part of a long file says each of its pages is.
+	Pages []PageLabel `json:"pages,omitempty"`
+}
+
+// Section is one record inside a long file: pages First to Last.
+type Section struct {
+	First    int    `json:"first"`
+	Last     int    `json:"last"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Date     string `json:"date"`
+	Provider string `json:"provider"`
+	Summary  string `json:"summary"`
+}
+
+// PageLabel is the record one page belongs to.
+type PageLabel struct {
+	Page      int    `json:"page"`
+	NewRecord bool   `json:"new_record"` // a record starts on this page
+	Kind      string `json:"kind"`
+	Title     string `json:"title"`
+	Date      string `json:"date"`
+	Provider  string `json:"provider"`
+	About     string `json:"about"`
 }
 
 // Value is one result or measurement as printed.
@@ -39,6 +67,7 @@ type Value struct {
 	RefHigh   *float64 `json:"ref_high"`
 	Flag      string   `json:"flag"`
 	Date      string   `json:"date"`
+	Section   int      `json:"section,omitempty"` // in a long file, its section (from 1)
 }
 
 // Med is a medication mentioned in the file.
@@ -54,6 +83,8 @@ type FollowUp struct {
 	When string `json:"when"` // as written: "in about six months"
 	Due  string `json:"due"`  // YYYY-MM-DD: printed, or worked out from When
 	From string `json:"from"` // the date of the note that said it (the app fills it in)
+	// In a long file, its section (from 1).
+	Section int `json:"section,omitempty"`
 }
 
 // Kinds are the kinds of file the reader sorts into.
@@ -230,14 +261,16 @@ func Parse(raw string) (Result, error) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &r); err != nil {
 		return r, errUnreadable
 	}
-	r.Kind = strings.ToLower(strings.TrimSpace(r.Kind))
-	known := false
-	for _, k := range Kinds {
-		known = known || k == r.Kind
+	r.Kind = knownKind(r.Kind)
+	labels := r.Pages[:0]
+	for _, l := range r.Pages {
+		if l.Page > 0 {
+			l.Kind, l.Title, l.Date = knownKind(l.Kind), clip(l.Title, 120), cleanDate(l.Date)
+			l.Provider, l.About = clip(l.Provider, 160), clip(l.About, 300)
+			labels = append(labels, l)
+		}
 	}
-	if !known {
-		r.Kind = "other"
-	}
+	r.Pages = labels
 	r.Title = clip(r.Title, 120)
 	r.Provider = clip(r.Provider, 160)
 	r.PatientName = clip(r.PatientName, 120)
@@ -292,6 +325,16 @@ func Parse(raw string) (Result, error) {
 	}
 	r.Questions = qs
 	return r, nil
+}
+
+func knownKind(k string) string {
+	k = strings.ToLower(strings.TrimSpace(k))
+	for _, known := range Kinds {
+		if k == known {
+			return k
+		}
+	}
+	return "other"
 }
 
 func clip(s string, n int) string {

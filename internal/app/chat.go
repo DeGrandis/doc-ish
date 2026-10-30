@@ -360,10 +360,29 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 		b.WriteString("Not filled in yet: " + strings.Join(empty, ", ") + "\n")
 	}
 
+	secs := map[int64][]store.Section{}
+	if all, err := st.PersonSections(p.ID); err == nil {
+		for _, s := range all {
+			secs[s.DocumentID] = append(secs[s.DocumentID], s)
+		}
+	}
 	if docs, _ := st.Documents(p.ID, "", 40); len(docs) > 0 {
 		b.WriteString("\n## Files (newest first; the [doc:N] id is for your tools)\n")
 		for _, d := range docs {
 			b.WriteString("- " + docLine(d) + "\n")
+			// A records release lists the visits and reports in it, so
+			// "my visit in September" finds it.
+			n := 0
+			for _, s := range secs[d.ID] {
+				if s.Date == "" {
+					continue
+				}
+				if n++; n > 15 {
+					b.WriteString("  - …and more; read_file lists them all\n")
+					break
+				}
+				fmt.Fprintf(&b, "  - %s %s: %s (pages %d–%d)\n", s.Date, s.Kind, s.Title, s.FirstPage, s.LastPage)
+			}
 		}
 	}
 

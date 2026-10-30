@@ -41,6 +41,17 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
   values with their right dates. Every value keeps its own date, the same
   value read twice is kept once, and the file is named and summed up from
   all its parts, dated by its newest result.
+- **The records inside a long file** are found as sections of their own:
+  each part of the file says which record every page belongs to (a visit
+  note, a lab report, a letter, a handout, with its date), and pages of
+  one record are joined. The file stays one file, but its viewer lists
+  what's inside by date and page, picking one shows that record's values
+  and turns the PDF to its page, and on the timeline each visit is on its
+  own day and a cumulative lab table once for each day it has results
+  for. Values and follow-ups say which record they came from, so a
+  "recheck in six months" counts from that visit's date. On the invented
+  release, qwen3.5:4b found all three visits and the lab table on the
+  right pages and dates.
 - **Scans and photos of paperwork** are read by Tesseract first (in the
   image, no model, about a second a page on the CPU). It notes where on
   the page every word is, so a scanned page is laid out like a printed

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -144,5 +145,89 @@ func TestFollowUpsFiledClosedUndone(t *testing.T) {
 	// Added by hand: "in three months" from today.
 	if code := call(t, c, "POST", people+"/followups", map[string]string{"what": "Dentist", "when": "in three months"}, &f); code != 200 || f.Due == "" {
 		t.Fatalf("add: %d %+v", code, f)
+	}
+}
+
+// fakeRelease answers with a file of two records: a visit and a lab
+// table of two days, as a long file's merged answer is.
+func fakeRelease(t *testing.T) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		answer := `{"kind":"other","title":"Records release","doc_date":"2026-03-12","provider":"","patient_name":"Jane Doe",
+			"summary":"Visits and labs.","confidence":"high","questions":[],"medications":[],
+			"sections":[{"first":2,"last":3,"kind":"visit","title":"Visit note","date":"2025-09-12","provider":"","summary":"Tired."},
+			            {"first":4,"last":7,"kind":"lab","title":"Lab results","date":"2026-03-12","provider":"","summary":""}],
+			"observations":[
+			  {"name":"Blood pressure","value":128,"value_text":"","unit":"mmHg","ref_low":null,"ref_high":null,"flag":"","date":"2025-09-12","section":1},
+			  {"name":"Ferritin","value":18,"value_text":"","unit":"ng/mL","ref_low":30,"ref_high":400,"flag":"L","date":"2025-09-12","section":2},
+			  {"name":"Ferritin","value":41,"value_text":"","unit":"ng/mL","ref_low":30,"ref_high":400,"flag":"","date":"2026-03-12","section":2}],
+			"follow_ups":[{"what":"Recheck iron","when":"in six months","due":"","from":"","section":1}]}`
+		json.NewEncoder(w).Encode(map[string]any{"message": map[string]string{"role": "assistant", "content": answer}, "done": true})
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestSectionsFiledAndOnTheTimeline(t *testing.T) {
+	srv, c := signedIn(t, fakeRelease(t).URL)
+	people := srv.URL + "/api/people/1"
+	id := uploadText(t, c, people+"/documents", "release.txt", "Records release")
+	doc := srv.URL + "/api/documents/" + itoa(id)
+	waitRead(t, c, doc)
+
+	var d struct {
+		Sections []store.Section     `json:"sections"`
+		Values   []store.Observation `json:"values"`
+	}
+	call(t, c, "GET", doc, nil, &d)
+	if len(d.Sections) != 2 || d.Sections[0].Title != "Visit note" || d.Sections[1].FirstPage != 4 || len(d.Values) != 3 {
+		t.Fatalf("filed: %+v", d)
+	}
+	for _, v := range d.Values {
+		want := d.Sections[1].ID
+		if v.Name == "Blood pressure" {
+			want = d.Sections[0].ID
+		}
+		if v.SectionID == nil || *v.SectionID != want {
+			t.Errorf("%s %s in section %v", v.Name, v.Observed, v.SectionID)
+		}
+	}
+	var fs []store.FollowUp
+	call(t, c, "GET", people+"/followups", nil, &fs)
+	if len(fs) != 1 || fs[0].From != "2025-09-12" || fs[0].SectionID == nil || *fs[0].SectionID != d.Sections[0].ID {
+		t.Fatalf("follow-up: %+v", fs)
+	}
+
+	// The visit on its day, the labs once per day, and the file itself.
+	var tl struct {
+		Events []timelineEvent `json:"events"`
+	}
+	call(t, c, "GET", people+"/timeline", nil, &tl)
+	var got []string
+	for _, e := range tl.Events {
+		got = append(got, fmt.Sprintf("%s %s %s p%d %d", e.Date, e.Type, e.Title, e.Page, len(e.Flags)))
+	}
+	want := []string{"2026-03-12 file Records release p0 0", "2026-03-12 followup Done: Recheck iron p0 0", "2026-03-12 section Lab results p4 0", "2025-09-12 section Visit note p2 0",
+		"2025-09-12 section Lab results p4 1"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("timeline:\n%s", strings.Join(got, "\n"))
+	}
+
+	// Read again starts over: no sections left behind.
+	call(t, c, "POST", doc+"/read", nil, nil)
+	waitRead(t, c, doc)
+	call(t, c, "GET", doc, nil, &d)
+	if len(d.Sections) != 2 {
+		t.Fatalf("read again: %d sections", len(d.Sections))
+	}
+	var acts []struct {
+		ID      int64  `json:"id"`
+		Summary string `json:"summary"`
+	}
+	call(t, c, "GET", people+"/activity", nil, &acts)
+	call(t, c, "POST", srv.URL+"/api/activity/"+itoa(acts[0].ID)+"/undo", nil, nil)
+	d.Sections = nil
+	call(t, c, "GET", doc, nil, &d)
+	if len(d.Sections) != 0 {
+		t.Fatalf("after undo: %+v", d.Sections)
 	}
 }

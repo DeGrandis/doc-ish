@@ -18,11 +18,12 @@ import (
 
 type timelineEvent struct {
 	Date       string   `json:"date"` // YYYY-MM-DD, or YYYY when only the year is known
-	Type       string   `json:"type"` // file, medication, condition, surgery, vaccination, followup
+	Type       string   `json:"type"` // file, section (a record inside a long file), medication, condition, surgery, vaccination, followup
 	Kind       string   `json:"kind"` // a file's kind
 	Title      string   `json:"title"`
 	Detail     string   `json:"detail,omitempty"`
 	DocID      int64    `json:"doc_id,omitempty"`
+	Page       int      `json:"page,omitempty"`   // where a section starts in its file
 	Status     string   `json:"status,omitempty"` // a file waiting in Review
 	Flags      []string `json:"flags,omitempty"`  // values out of range
 	MoreFlags  int      `json:"more_flags,omitempty"`
@@ -56,6 +57,18 @@ func flagText(o store.Observation) string {
 	return s
 }
 
+// flagsOf is the first few out-of-range values, and how many more.
+func flagsOf(obs []store.Observation) ([]string, int) {
+	var out []string
+	for i, o := range obs {
+		if i == maxFlags {
+			return out, len(obs) - maxFlags
+		}
+		out = append(out, flagText(o))
+	}
+	return out, 0
+}
+
 func (a *App) handleTimeline(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
 	if !ok {
@@ -83,6 +96,20 @@ func (a *App) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			storeErr(w, err)
 			return
 		}
+		all, err := st.PersonSections(id)
+		if err != nil {
+			storeErr(w, err)
+			return
+		}
+		days, err := st.SectionDays(id)
+		if err != nil {
+			storeErr(w, err)
+			return
+		}
+		secs := map[int64][]store.Section{}
+		for _, s := range all {
+			secs[s.DocumentID] = append(secs[s.DocumentID], s)
+		}
 		events := []timelineEvent{}
 		for _, d := range docs {
 			if d.Status != store.StatusDone && d.Status != store.StatusReview {
@@ -98,14 +125,49 @@ func (a *App) handleTimeline(w http.ResponseWriter, r *http.Request) {
 			if d.Status == store.StatusReview {
 				e.Status = d.Status
 			}
-			for i, o := range flagged[d.ID] {
-				if i == maxFlags {
-					e.MoreFlags = len(flagged[d.ID]) - maxFlags
-					break
-				}
-				e.Flags = append(e.Flags, flagText(o))
+			if len(secs[d.ID]) == 0 {
+				e.Flags, e.MoreFlags = flagsOf(flagged[d.ID])
+				events = append(events, e)
+				continue
 			}
+			// A file of many records: the file on its newest date, saying
+			// what's in it, and each dated record on its own date, a lab
+			// table once for each day it has results for.
+			e.Detail = strings.TrimSpace(fmt.Sprintf("%d records inside, by page. %s", len(secs[d.ID]), e.Detail))
 			events = append(events, e)
+			bySection := map[int64][]store.Observation{}
+			for _, o := range flagged[d.ID] {
+				if o.SectionID != nil {
+					bySection[*o.SectionID] = append(bySection[*o.SectionID], o)
+				}
+			}
+			for _, s := range secs[d.ID] {
+				se := timelineEvent{Type: "section", Kind: s.Kind, Title: s.Title, Detail: s.Summary, DocID: d.ID, Page: s.FirstPage, Status: e.Status}
+				if se.Title == "" {
+					se.Title = s.Kind
+				}
+				if s.Kind == "lab" && len(days[s.ID]) > 0 {
+					for day, n := range days[s.ID] {
+						le := se
+						le.Date, le.Detail = day, fmt.Sprintf("%d result%s from this day.", n, plural(n))
+						var mine []store.Observation
+						for _, o := range bySection[s.ID] {
+							if strings.HasPrefix(o.Observed, day) {
+								mine = append(mine, o)
+							}
+						}
+						le.Flags, le.MoreFlags = flagsOf(mine)
+						events = append(events, le)
+					}
+					continue
+				}
+				if s.Date == "" {
+					continue // undated (a handout, a form): listed in the file
+				}
+				se.Date = s.Date
+				se.Flags, se.MoreFlags = flagsOf(bySection[s.ID])
+				events = append(events, se)
+			}
 		}
 		add := func(typ, prefix string, items []store.Item) {
 			for _, it := range items {
@@ -133,7 +195,12 @@ func (a *App) handleTimeline(w http.ResponseWriter, r *http.Request) {
 					FollowUpID: f.ID})
 			}
 		}
-		sort.SliceStable(events, func(i, j int) bool { return events[i].Date > events[j].Date })
+		sort.SliceStable(events, func(i, j int) bool {
+			if events[i].Date != events[j].Date {
+				return events[i].Date > events[j].Date
+			}
+			return events[i].Page < events[j].Page
+		})
 		writeJSON(w, map[string]any{"coming": coming, "events": events})
 	})
 }
