@@ -1,7 +1,7 @@
 # Run on a home server: docker compose up -d --build
 services:
-  mymedical:
-    image: mymedical:latest
+  docish:
+    image: docish:latest
     build:
       context: .
       args:
@@ -10,22 +10,22 @@ services:
     ports:
       - "8080:8080"             # reachable from your LAN; the app asks for a password
     environment:
-      MYMEDICAL_ADDR: 0.0.0.0:8080
+      DOCISH_ADDR: 0.0.0.0:8080
       # Fills in Settings → Assistant on a fresh install:
-      MYMEDICAL_OLLAMA_URL: http://host.docker.internal:11434
+      DOCISH_OLLAMA_URL: http://host.docker.internal:11434
       # Automatic backups go to this folder (Settings → Backups can change it):
-      # MYMEDICAL_BACKUP_DIR: /backup
+      # DOCISH_BACKUP_DIR: /backup
       # Unlocks the records whenever the app starts, so it never waits for
       # a sign-in after a restart. Convenient, but anyone who can read this
       # file can read the records:
-      # MYMEDICAL_PASSWORD: change-me
+      # DOCISH_PASSWORD: change-me
     extra_hosts:
       # Lets the app reach Ollama on this same machine.
       - "host.docker.internal:host-gateway"
     volumes:
-      - mymedical-data:/data
+      - docish-data:/data
       # A folder for automatic backups, for example a NAS share this
       # machine has mounted:
-      # - /mnt/nas/mymedical:/backup
+      # - /mnt/nas/docish:/backup
 volumes:
-  mymedical-data:
+  docish-data:

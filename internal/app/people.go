@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // palette is the profile colors, in the order new profiles get them.

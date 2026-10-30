@@ -1,4 +1,4 @@
-module github.com/DeGrandis/mymedical
+module github.com/DeGrandis/doc-ish
 
 go 1.26.0
 

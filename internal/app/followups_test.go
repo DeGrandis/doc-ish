@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 func TestShownDone(t *testing.T) {

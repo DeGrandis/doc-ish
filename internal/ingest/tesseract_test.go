@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeGrandis/mymedical/internal/pdfgen"
+	"github.com/DeGrandis/doc-ish/internal/pdfgen"
 )
 
 // TestTesseract reads the invented release's lab table as a scan (pages

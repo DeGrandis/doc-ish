@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/brand"
+	"github.com/DeGrandis/doc-ish/internal/brand"
 )
 
 // Automatic backups to a folder: typically a NAS share mounted into the

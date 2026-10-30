@@ -22,11 +22,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/imaging"
-	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/ollama"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/imaging"
+	"github.com/DeGrandis/doc-ish/internal/ingest"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // Imaging: DICOM files are gathered into studies as they arrive, from one

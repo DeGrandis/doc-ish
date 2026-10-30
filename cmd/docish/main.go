@@ -1,4 +1,4 @@
-// Command mymedical runs the app: a household's medical records on their
+// Command docish runs the app: a household's medical records on their
 // own server, with a local model to read them and answer questions.
 package main
 
@@ -15,12 +15,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/app"
-	"github.com/DeGrandis/mymedical/internal/bench"
-	"github.com/DeGrandis/mymedical/internal/brand"
-	"github.com/DeGrandis/mymedical/internal/imaging"
-	"github.com/DeGrandis/mymedical/internal/reference"
-	"github.com/DeGrandis/mymedical/web"
+	"github.com/DeGrandis/doc-ish/internal/app"
+	"github.com/DeGrandis/doc-ish/internal/bench"
+	"github.com/DeGrandis/doc-ish/internal/brand"
+	"github.com/DeGrandis/doc-ish/internal/imaging"
+	"github.com/DeGrandis/doc-ish/internal/reference"
+	"github.com/DeGrandis/doc-ish/web"
 )
 
 var version = "dev"
@@ -82,7 +82,7 @@ func main() {
 
 // synthStudies writes invented imaging studies for trying the viewer:
 // a CT of the chest (two series) and a one-image X-ray, as DICOM files.
-// go run ./cmd/mymedical imaging synth -out ./out -patient "PERSON^TEST"
+// go run ./cmd/docish imaging synth -out ./out -patient "PERSON^TEST"
 func synthStudies(args []string) {
 	fs := flag.NewFlagSet("synth", flag.ExitOnError)
 	out := fs.String("out", "synth-dicom", "folder to write into")
@@ -121,9 +121,9 @@ const benchModels = "qwen3.5:4b,bonsai-2:9b,gemma4:12b,ornith:9b,qwen3.5:9b"
 // -out, the folder gets a live report.html (and index.html beside it);
 // running the same command again resumes, keeping finished runs.
 //
-//	go run ./cmd/mymedical bench -runs 3 -ollama http://localhost:11434 -out _bench/2026-10-29
-//	go run ./cmd/mymedical bench -provider remote -url https://openrouter.ai/api/v1 -key-env OPENROUTER_API_KEY -models some/model:free
-//	go run ./cmd/mymedical bench view -dir _bench -addr 127.0.0.1:8092
+//	go run ./cmd/docish bench -runs 3 -ollama http://localhost:11434 -out _bench/2026-10-29
+//	go run ./cmd/docish bench -provider remote -url https://openrouter.ai/api/v1 -key-env OPENROUTER_API_KEY -models some/model:free
+//	go run ./cmd/docish bench view -dir _bench -addr 127.0.0.1:8092
 func runBench(args []string) {
 	if len(args) > 0 && args[0] == "view" {
 		viewBench(args[1:])
@@ -189,7 +189,7 @@ func viewBench(args []string) {
 }
 
 // bundleMedlinePlus refreshes the MedlinePlus topics built into the
-// binary: go run ./cmd/mymedical reference bundle-medlineplus
+// binary: go run ./cmd/docish reference bundle-medlineplus
 func bundleMedlinePlus(args []string) {
 	fs := flag.NewFlagSet("bundle-medlineplus", flag.ExitOnError)
 	out := fs.String("out", "internal/reference/data/medlineplus.json.gz", "where to write the bundle")

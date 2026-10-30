@@ -15,10 +15,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/healthexport"
-	"github.com/DeGrandis/mymedical/internal/imaging"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/healthexport"
+	"github.com/DeGrandis/doc-ish/internal/imaging"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 func (a *App) handleDocuments(w http.ResponseWriter, r *http.Request) {

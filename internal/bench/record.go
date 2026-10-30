@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/brand"
+	"github.com/DeGrandis/doc-ish/internal/brand"
 )
 
 // A run's folder, written as it goes so its page shows progress:

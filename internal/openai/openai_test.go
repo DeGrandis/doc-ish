@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
 )
 
 // fakeProvider streams a tool call in pieces, as providers do, and answers

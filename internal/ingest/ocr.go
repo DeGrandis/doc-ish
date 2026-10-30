@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
 )
 
 // An OCR model (DeepSeek-OCR, made for reading documents) can turn scanned

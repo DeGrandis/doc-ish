@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/ollama"
-	"github.com/DeGrandis/mymedical/internal/reference"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/ingest"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/reference"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // The assistant's tools. Lookups are read-only. note_value and

@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // A person's history on one line: files by the date they're about, the

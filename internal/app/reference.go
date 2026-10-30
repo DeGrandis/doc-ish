@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/reference"
+	"github.com/DeGrandis/doc-ish/internal/reference"
 )
 
 // refJob is the one reference download that may run at a time.

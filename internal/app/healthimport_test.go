@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeGrandis/mymedical/internal/healthexport"
+	"github.com/DeGrandis/doc-ish/internal/healthexport"
 )
 
 type activityJSON struct {

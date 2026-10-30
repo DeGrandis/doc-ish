@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
 )
 
 // A long file (a 100-page records release, a binder of scanned faxes) is

@@ -1,7 +1,7 @@
 /data/
 *.db
 *.db-journal
-/mymedical
+/docish
 # Never commit real medical records
 private/
 *.real.*

@@ -22,8 +22,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/app"
-	"github.com/DeGrandis/mymedical/web"
+	"github.com/DeGrandis/doc-ish/internal/app"
+	"github.com/DeGrandis/doc-ish/web"
 )
 
 // Config says which models to run and where.
@@ -111,7 +111,7 @@ func (s *session) call(method, path string, body, out any) (int, error) {
 
 // start makes a fresh app with the household and its files, set to model.
 func start(cfg Config, model string) (*session, func(), error) {
-	dir, err := os.MkdirTemp("", "mymedical-bench-*")
+	dir, err := os.MkdirTemp("", "docish-bench-*")
 	if err != nil {
 		return nil, nil, err
 	}

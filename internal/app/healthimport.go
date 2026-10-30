@@ -14,10 +14,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/healthexport"
-	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/healthexport"
+	"github.com/DeGrandis/doc-ish/internal/ingest"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // Health exports (Apple Health, Google Fit) are read by fixed code, not

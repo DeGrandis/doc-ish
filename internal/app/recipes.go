@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/recipes"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/ingest"
+	"github.com/DeGrandis/doc-ish/internal/recipes"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // fullText re-reads a stored table's whole text. Callers hold a.mu.

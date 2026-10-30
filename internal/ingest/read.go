@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
 )
 
 // Result is what the reader made of a file.

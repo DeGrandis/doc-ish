@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/ollama"
-	"github.com/DeGrandis/mymedical/internal/openai"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/openai"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // Settings is what Settings → Assistant edits. The models run on this
@@ -20,7 +20,7 @@ import (
 type Settings struct {
 	Provider    string `json:"provider"` // ollama or remote
 	OllamaURL   string `json:"ollama_url"`
-	OllamaFound bool   `json:"ollama_found"` // the address came from MYMEDICAL_OLLAMA_URL
+	OllamaFound bool   `json:"ollama_found"` // the address came from DOCISH_OLLAMA_URL
 	ChatModel   string `json:"chat_model"`
 	VisionModel string `json:"vision_model"`
 	OCRModel    string `json:"ocr_model"` // optional: turns scanned pages and photos of documents into text first

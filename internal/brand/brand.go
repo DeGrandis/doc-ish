@@ -5,7 +5,7 @@ package brand
 
 // Name is what people see: the header, the page title, the assistant's
 // introduction.
-var Name = "MyMedical"
+var Name = "Doc-ish"
 
-// Code is the short machine name: MYMEDICAL_* settings, the cookie.
-var Code = "mymedical"
+// Code is the short machine name: DOCISH_* settings, the cookie.
+var Code = "docish"

@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/brand"
-	"github.com/DeGrandis/mymedical/internal/vault"
+	"github.com/DeGrandis/doc-ish/internal/brand"
+	"github.com/DeGrandis/doc-ish/internal/vault"
 )
 
 // A backup is a tar of the data directory as it is on disk: keys.json, the
@@ -27,7 +27,7 @@ import (
 // The public reference data isn't included; it can be downloaded again.
 
 const (
-	backupFormat  = "mymedical-backup"
+	backupFormat  = "docish-backup"
 	backupVersion = 1
 )
 

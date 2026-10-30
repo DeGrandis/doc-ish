@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/openai"
-	"github.com/DeGrandis/mymedical/internal/recipes"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/ingest"
+	"github.com/DeGrandis/doc-ish/internal/openai"
+	"github.com/DeGrandis/doc-ish/internal/recipes"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // The reader works through files waiting to be read, one at a time (one

@@ -9,7 +9,7 @@ COPY . .
 ARG TARGETOS TARGETARCH
 # The version the app reports: a release tag, git describe, or "dev".
 ARG VERSION=dev
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /out/mymedical ./cmd/mymedical
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X main.version=$VERSION" -o /out/docish ./cmd/docish
 RUN mkdir -p /out/data
 
 # On Debian slim: Poppler reads and renders PDFs for the file reader,
@@ -21,10 +21,10 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates poppler-utils libgdcm-tools tesseract-ocr \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --uid 65532 --no-create-home --shell /usr/sbin/nologin app
-COPY --from=build /out/mymedical /mymedical
+COPY --from=build /out/docish /docish
 COPY --from=build --chown=65532:65532 /out/data /data
 USER 65532:65532
-ENV MYMEDICAL_ADDR=0.0.0.0:8080 MYMEDICAL_DATA=/data
+ENV DOCISH_ADDR=0.0.0.0:8080 DOCISH_DATA=/data
 VOLUME /data
 EXPOSE 8080
-ENTRYPOINT ["/mymedical"]
+ENTRYPOINT ["/docish"]

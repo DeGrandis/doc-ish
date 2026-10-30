@@ -20,20 +20,20 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/brand"
-	"github.com/DeGrandis/mymedical/internal/reference"
-	"github.com/DeGrandis/mymedical/internal/store"
-	"github.com/DeGrandis/mymedical/internal/vault"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/brand"
+	"github.com/DeGrandis/doc-ish/internal/reference"
+	"github.com/DeGrandis/doc-ish/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/vault"
 )
 
 // Config is what main passes in from flags and the environment.
 type Config struct {
 	DataDir   string
 	Version   string
-	Password  string // MYMEDICAL_PASSWORD: unlock at start
-	OllamaURL string // MYMEDICAL_OLLAMA_URL: the default until Settings has one
-	BackupDir string // MYMEDICAL_BACKUP_DIR: the default folder for automatic backups
+	Password  string // DOCISH_PASSWORD: unlock at start
+	OllamaURL string // DOCISH_OLLAMA_URL: the default until Settings has one
+	BackupDir string // DOCISH_BACKUP_DIR: the default folder for automatic backups
 	Web       fs.FS
 }
 
@@ -79,7 +79,7 @@ func New(cfg Config) (*App, error) {
 	if cfg.Password != "" && vault.Exists(cfg.DataDir) {
 		key, err := vault.Unlock(cfg.DataDir, cfg.Password)
 		if err != nil {
-			return nil, errors.New("MYMEDICAL_PASSWORD doesn't unlock the data in " + cfg.DataDir)
+			return nil, errors.New("DOCISH_PASSWORD doesn't unlock the data in " + cfg.DataDir)
 		}
 		if err := a.unlock(key); err != nil {
 			return nil, err

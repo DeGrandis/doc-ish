@@ -1,6 +1,6 @@
 # Model benchmark
 
-MyMedical's reader and assistant run on a model on your own Ollama. This
+Doc-ish's reader and assistant run on a model on your own Ollama. This
 benchmark measures which models do this app's job well: the same files,
 questions and grading for every model.
 
@@ -78,9 +78,9 @@ It runs on the dev base image, which has Poppler for the PDFs and
 Tesseract for the scan:
 
 ```sh
-docker build -t mymedical-devbase -f dev.Dockerfile .
-docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD:/src" -w /src mymedical-devbase \
-  go run ./cmd/mymedical bench -ollama http://host.docker.internal:11434 -runs 3 -out _bench/$(date +%F)
+docker build -t docish-devbase -f dev.Dockerfile .
+docker run --rm --add-host host.docker.internal:host-gateway -v "$PWD:/src" -w /src docish-devbase \
+  go run ./cmd/docish bench -ollama http://host.docker.internal:11434 -runs 3 -out _bench/$(date +%F)
 ```
 
 Without `-models` it runs the best models from Proof of Basis's
@@ -94,8 +94,8 @@ missed. `index.html` in the folder above lists every run side by side.
 To serve them (the page then reloads itself when something changes):
 
 ```sh
-docker run --rm -p 127.0.0.1:8092:8092 -v "$PWD:/src" -w /src mymedical-devbase \
-  go run ./cmd/mymedical bench view -dir _bench -addr 0.0.0.0:8092
+docker run --rm -p 127.0.0.1:8092:8092 -v "$PWD:/src" -w /src docish-devbase \
+  go run ./cmd/docish bench view -dir _bench -addr 0.0.0.0:8092
 ```
 
 Stopping a run (Ctrl+C or `docker stop`) marks it paused; the same command

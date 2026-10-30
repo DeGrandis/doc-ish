@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DeGrandis/mymedical/internal/imaging"
+	"github.com/DeGrandis/doc-ish/internal/imaging"
 )
 
 func ctSlice(t *testing.T, series string, n int) []byte {

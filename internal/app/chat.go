@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/blobs"
-	"github.com/DeGrandis/mymedical/internal/brand"
-	"github.com/DeGrandis/mymedical/internal/ollama"
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/blobs"
+	"github.com/DeGrandis/doc-ish/internal/brand"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // historyLimit is how many earlier messages go with each question.

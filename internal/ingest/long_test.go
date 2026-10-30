@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
-	"github.com/DeGrandis/mymedical/internal/pdfgen"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/pdfgen"
 )
 
 // recorder is a fake model: every part answers with the same ferritin (to

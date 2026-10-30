@@ -1,6 +1,6 @@
-# MyMedical
+# Doc-ish
 
-*(Working name.)* Every medical file your family has, in one place on your
+Every medical file your family has, in one place on your
 own server, and a local AI that reads them and answers questions. A sibling
 of [Proof of Basis](https://proofofbasis.degrand.is).
 
@@ -206,11 +206,11 @@ address and pick a model.
 
 | Variable | Default | |
 |---|---|---|
-| `MYMEDICAL_ADDR` | `127.0.0.1:8080` (the image uses `0.0.0.0:8080`) | Listen address |
-| `MYMEDICAL_DATA` | `./data` (the image uses `/data`) | Data directory |
-| `MYMEDICAL_OLLAMA_URL` | unset | Fills in the Ollama address on a fresh install |
-| `MYMEDICAL_PASSWORD` | unset | Unlocks the records whenever the app starts |
-| `MYMEDICAL_BACKUP_DIR` | unset | The folder for automatic backups, until Settings changes it |
+| `DOCISH_ADDR` | `127.0.0.1:8080` (the image uses `0.0.0.0:8080`) | Listen address |
+| `DOCISH_DATA` | `./data` (the image uses `/data`) | Data directory |
+| `DOCISH_OLLAMA_URL` | unset | Fills in the Ollama address on a fresh install |
+| `DOCISH_PASSWORD` | unset | Unlocks the records whenever the app starts |
+| `DOCISH_BACKUP_DIR` | unset | The folder for automatic backups, until Settings changes it |
 
 ### Images and CI
 
@@ -230,7 +230,7 @@ Go isn't required on the machine; the commands run in Docker:
 
 ```sh
 docker run --rm -v "$PWD:/src" -w /src golang:1.26-alpine go test ./...
-docker run --rm -p 127.0.0.1:8090:8080 -v "$PWD:/src" -w /src golang:1.26-alpine go run ./cmd/mymedical -addr 0.0.0.0:8080 -data /tmp/data
+docker run --rm -p 127.0.0.1:8090:8080 -v "$PWD:/src" -w /src golang:1.26-alpine go run ./cmd/docish -addr 0.0.0.0:8080 -data /tmp/data
 ```
 
 **Never commit real records.** `private/` and `*.real.*` are git-ignored.
@@ -240,13 +240,13 @@ docker run --rm -p 127.0.0.1:8090:8080 -v "$PWD:/src" -w /src golang:1.26-alpine
 studies for trying the viewer:
 
 ```sh
-docker run --rm -v "$PWD:/src" -w /src mymedical-devbase go run ./cmd/mymedical imaging synth -out ./_dev/synth
+docker run --rm -v "$PWD:/src" -w /src docish-devbase go run ./cmd/docish imaging synth -out ./_dev/synth
 ```
 
 The MedlinePlus topics built into the binary are refreshed with:
 
 ```sh
-docker run --rm -v "$PWD:/src" -w /src golang:1.26-alpine go run ./cmd/mymedical reference bundle-medlineplus
+docker run --rm -v "$PWD:/src" -w /src golang:1.26-alpine go run ./cmd/docish reference bundle-medlineplus
 ```
 
 ### Credits
@@ -261,7 +261,7 @@ under the license at http://loinc.org/license.
 ### Layout
 
 ```
-cmd/mymedical       the app
+cmd/docish       the app
 internal/brand      the product name
 internal/vault      password and recovery key -> the data key
 internal/store      SQLite, encrypted with the data key

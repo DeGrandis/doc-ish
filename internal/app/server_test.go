@@ -153,7 +153,7 @@ func TestIndexBrand(t *testing.T) {
 	}
 	b, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if !strings.Contains(string(b), "<title>MyMedical</title>") {
+	if !strings.Contains(string(b), "<title>Doc-ish</title>") {
 		t.Fatalf("index: %s", b)
 	}
 }

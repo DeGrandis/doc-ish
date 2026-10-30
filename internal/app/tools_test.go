@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/store"
+	"github.com/DeGrandis/doc-ish/internal/store"
 )
 
 // scriptedOllama answers chat calls in turn: each step is either tool

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/healthexport"
-	"github.com/DeGrandis/mymedical/internal/pdfgen"
+	"github.com/DeGrandis/doc-ish/internal/healthexport"
+	"github.com/DeGrandis/doc-ish/internal/pdfgen"
 )
 
 // check is one thing an answer must get right; it returns what was wrong,

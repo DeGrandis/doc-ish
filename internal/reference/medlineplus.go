@@ -32,7 +32,7 @@ type Topic struct {
 
 // bundle is the topics as of the last build: a gzipped JSON object
 // {"version": "2026-10-29", "topics": [...]}, made by
-// `mymedical reference bundle-medlineplus`.
+// `docish reference bundle-medlineplus`.
 //
 //go:embed data/medlineplus.json.gz
 var bundle []byte

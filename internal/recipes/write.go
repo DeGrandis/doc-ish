@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
 )
 
 // Draft is a recipe the model wrote and the app tried on the whole file.

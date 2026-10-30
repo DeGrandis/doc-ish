@@ -22,7 +22,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/doc-ish/internal/ollama"
 )
 
 type Client struct {

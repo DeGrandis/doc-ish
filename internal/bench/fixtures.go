@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"fmt"
-	"github.com/DeGrandis/mymedical/internal/pdfgen"
+	"github.com/DeGrandis/doc-ish/internal/pdfgen"
 	"strings"
 )
 
