@@ -156,6 +156,18 @@ ul.meds { margin: 0; padding-left: 1.2em; font-size: var(--fs-sm); }
 .reading-dot { position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); animation: pulse 1s ease-in-out infinite; }
 .typing { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
 
+/* Import recipes */
+.recipe-card { margin: var(--s-4) 0 0; padding: var(--s-4) var(--s-5); border: 1px solid var(--accent); border-radius: var(--r-sm); }
+.recipe-card .eyebrow { display: block; margin: var(--s-4) 0 var(--s-2); }
+.recipe-card .eyebrow:first-child { margin-top: 0; }
+.recipe-card h3 { margin: 0 0 var(--s-2); font-size: var(--fs-lg); }
+.recipe-card details { margin-top: var(--s-3); }
+pre.script { font-family: var(--mono); font-size: var(--fs-xs); background: var(--panel-2); padding: var(--s-3); border-radius: var(--r-sm); overflow-x: auto; white-space: pre; }
+.recipe-actions, .recipe-fix { margin-top: var(--s-4); }
+.recipe-fix textarea { width: 100%; }
+.recipe-fix .row { margin-top: var(--s-2); }
+.recipe-row { display: flex; align-items: flex-start; gap: var(--s-3); padding: 12px 0; border-bottom: 1px solid var(--line); }
+
 /* ---------- Review ---------- */
 .review-card { padding: var(--s-4) 0 var(--s-6); border-bottom: 1px solid var(--line); }
 .review-card h2 a { text-decoration: none; }

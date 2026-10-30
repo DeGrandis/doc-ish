@@ -24,6 +24,7 @@ type Document struct {
 	ReviewReason string `json:"review_reason"`
 	Extracted    string `json:"-"` // the reader's JSON; sent separately where needed
 	Text         string `json:"-"`
+	RecipeID     *int64 `json:"recipe_id,omitempty"` // the import recipe that read it
 	Added        string `json:"added"`
 }
 
@@ -41,12 +42,12 @@ var ErrDuplicate = errors.New("already added")
 
 // docCols leaves out text, which can be large; Document and DocumentText
 // fetch it when it's wanted.
-const docCols = `id, person_id, blob, filename, mime, size, sha256, kind, title, doc_date, provider, summary, status, review_reason, extracted, added`
+const docCols = `id, person_id, blob, filename, mime, size, sha256, kind, title, doc_date, provider, summary, status, review_reason, extracted, recipe_id, added`
 
 func scanDoc(row interface{ Scan(...any) error }) (Document, error) {
 	var d Document
 	err := row.Scan(&d.ID, &d.PersonID, &d.Blob, &d.Filename, &d.Mime, &d.Size, &d.SHA256,
-		&d.Kind, &d.Title, &d.DocDate, &d.Provider, &d.Summary, &d.Status, &d.ReviewReason, &d.Extracted, &d.Added)
+		&d.Kind, &d.Title, &d.DocDate, &d.Provider, &d.Summary, &d.Status, &d.ReviewReason, &d.Extracted, &d.RecipeID, &d.Added)
 	if errors.Is(err, sql.ErrNoRows) {
 		return d, ErrNotFound
 	}

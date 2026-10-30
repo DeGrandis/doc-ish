@@ -104,7 +104,13 @@ type Request struct {
 	ChatModel   string // for text
 	VisionModel string // for images
 	NumCtx      int
+	// DescribeOnly asks what the file is without copying its values: for a
+	// long table, which an import recipe reads instead.
+	DescribeOnly bool
 }
+
+// describeRows is how much of a long table is shown when only describing it.
+const describeRows = 30
 
 // Read asks the model about the file and returns its tidied answer. A
 // DICOM file is described from its tags without a model.
@@ -142,7 +148,14 @@ func Read(ctx context.Context, c *ollama.Client, req Request) (Result, error) {
 	if req.Content.Note != "" {
 		fmt.Fprintf(&user, "Note: %s\n", req.Content.Note)
 	}
-	if cut {
+	if req.DescribeOnly {
+		lines := strings.SplitN(text, "\n", describeRows+2)
+		if len(lines) > describeRows+1 {
+			lines = lines[:describeRows+1]
+		}
+		text = strings.Join(lines, "\n")
+		fmt.Fprintf(&user, "Note: this is a long table (%d rows); only its first rows are below. Describe the file, but leave observations empty: the app reads every row another way.\n", req.Content.Rows)
+	} else if cut {
 		user.WriteString("Note: the file is long; only its beginning is below.\n")
 	}
 	if text != "" {
@@ -168,7 +181,10 @@ func Read(ctx context.Context, c *ollama.Client, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if cut {
+	if req.DescribeOnly {
+		res.Observations = nil
+	}
+	if cut && !req.DescribeOnly {
 		res.Questions = append(res.Questions, "Only the beginning of this long file was read.")
 	}
 	return res, nil

@@ -171,6 +171,11 @@ func (a *App) Handler() http.Handler {
 	auth("GET /api/people/{id}/activity", a.handleActivity)
 	auth("POST /api/activity/{id}/undo", a.handleUndo)
 	auth("GET /api/status", a.handleStatus)
+	auth("GET /api/recipes", a.handleRecipes)
+	auth("POST /api/recipes/{id}/approve", a.handleApproveRecipe)
+	auth("POST /api/recipes/{id}/reject", a.handleRejectRecipe)
+	auth("DELETE /api/recipes/{id}", a.handleDeleteRecipe)
+	auth("POST /api/documents/{id}/recipe", a.handleRewriteRecipe)
 
 	auth("GET /api/people/{id}/chats", a.handleChats)
 	auth("GET /api/chats/{id}", a.handleChatMessages)

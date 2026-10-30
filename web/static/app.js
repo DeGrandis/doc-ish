@@ -104,7 +104,7 @@ function valuesTable(vals) {
       const range = v.ref_low != null || v.ref_high != null ? `${fmtNum(v.ref_low)}–${fmtNum(v.ref_high)}` : "";
       return `<tr class="${bad ? "out" : ""}"><td>${esc(v.name)}</td>
         <td class="num">${esc(v.value != null ? fmtNum(v.value) : v.value_text)} <span class="muted">${esc(v.unit)}</span>${bad ? ` <span class="flag">${esc(v.flag || "out of range")}</span>` : ""}</td>
-        <td class="muted">${esc(range)}</td><td class="muted">${esc(v.observed || v.date || "")}</td></tr>`;
+        <td class="muted">${esc(range)}</td><td class="muted">${esc((v.observed || v.date || "").replace("T", " "))}</td></tr>`;
     }).join("") + "</tbody></table></div>";
 }
 
@@ -444,7 +444,8 @@ async function openDoc(id) {
     </div>
     ${statusBox(d)}
     ${d.summary ? `<p class="viewer-summary">${esc(d.summary)}</p>` : ""}
-    ${found && found.length ? `<span class="eyebrow">${d.status === "review" ? "Found, not filed yet" : "Values"}</span>${valuesTable(found)}` : ""}
+    ${d.recipe && d.recipe.status !== "proposed" ? `<p class="small muted">Read with the import recipe “${esc(d.recipe.name)}”.</p>` : ""}
+    ${found && found.length ? `<span class="eyebrow">${d.status === "review" ? "Found, not filed yet" : d.value_count > found.length ? `Values (the first ${found.length} of ${d.value_count}; ask the assistant for a chart of all of them)` : "Values"}</span>${valuesTable(found)}` : ""}
     ${d.result && d.result.medications && d.result.medications.length ? `<span class="eyebrow">Medications mentioned</span><ul class="meds">${d.result.medications.map(m => `<li>${esc(m.name)}${m.detail ? ` <span class="muted">${esc(m.detail)}</span>` : ""}</li>`).join("")}</ul>` : ""}
     <div class="viewer-body" id="viewer-body"></div>
     <details class="viewer-meta">
@@ -479,14 +480,44 @@ function statusBox(d) {
   if (d.status === "failed") return `<div class="status-box bad"><p>Couldn't read it: ${esc(d.review_reason)}</p><div class="row"><button data-reread="${d.id}">Read again</button></div></div>`;
   if (d.status !== "review") return "";
   const better = moveTarget(d);
+  const draft = d.recipe && d.recipe.status === "proposed";
   return `<div class="status-box look">
     <p><b>Needs a look before it's filed.</b></p>
     <ul>${d.review_reason.split("\n").filter(Boolean).map(r => `<li>${esc(r)}</li>`).join("")}</ul>
     <div class="row">
-      <button class="primary" data-accept="${d.id}">Looks right, file it</button>
+      ${draft ? "" : `<button class="primary" data-accept="${d.id}">Looks right, file it</button>`}
       ${better ? `<button data-move="${d.id}" data-to="${better.id}">Move to ${esc(better.name)}</button>` : ""}
+      ${draft ? `<button data-accept="${d.id}" title="Keeps the file and its description, without its readings">File it without the readings</button>` : ""}
       <button data-reread="${d.id}">Read again</button>
-    </div></div>`;
+    </div></div>
+    ${draft ? recipeCard(d) : ""}`;
+}
+
+// recipeCard shows a draft import recipe: what it found across the whole
+// file, a sample of the values, and the script, for a person to approve.
+function recipeCard(d) {
+  const r = d.recipe, p = r.preview || {};
+  const sample = (p.sample || []).map(x => ({ name: x.name, value: x.value, value_text: x.text, unit: x.unit, ref_low: x.ref_low, ref_high: x.ref_high, flag: x.flag, observed: x.date }));
+  return `<div class="recipe-card" data-recipe-doc="${d.id}">
+    <span class="eyebrow">Import recipe</span>
+    <h3>${esc(r.name)}</h3>
+    <p class="small muted">${esc(r.description)} It reads every row of the file: <b>${esc(p.total)}</b> value${p.total === 1 ? "" : "s"}. Once you approve it, files in this format are read by it, without the model.</p>
+    ${(p.series || []).length ? `<div class="scroll"><table class="values"><thead><tr><th>Measurement</th><th class="num">Readings</th><th>From</th><th>To</th></tr></thead><tbody>
+      ${p.series.map(s => `<tr><td>${esc(s.name)} <span class="muted">${esc(s.unit)}</span></td><td class="num">${esc(s.count)}</td><td class="muted">${esc(s.first.replace("T", " "))}</td><td class="muted">${esc(s.last.replace("T", " "))}</td></tr>`).join("")}
+    </tbody></table></div>` : ""}
+    <span class="eyebrow">The first and last values it found</span>
+    ${valuesTable(sample)}
+    ${(p.problems || []).length ? `<p class="small muted">Rows it skipped: ${esc(p.problems.join("; "))}</p>` : ""}
+    <details><summary class="small">The recipe</summary><pre class="script">${esc(r.script)}</pre></details>
+    <div class="row recipe-actions">
+      <button class="primary" data-approve-recipe="${r.id}">Use this recipe</button>
+      <button data-recipe-wrong="${d.id}">Not right…</button>
+    </div>
+    <div class="recipe-fix" hidden>
+      <label>What's wrong? <textarea rows="2" placeholder="The dates are a day off, the second column is mmol/L, skip the averages row…"></textarea></label>
+      <div class="row"><button class="primary" data-rewrite-recipe="${d.id}">Write another recipe</button><button data-reject-recipe="${r.id}">Discard this recipe</button></div>
+    </div>
+  </div>`;
 }
 
 // moveTarget is the other profile the reader thinks a file belongs to.
@@ -496,11 +527,30 @@ function moveTarget(d) {
 
 // The buttons in status boxes and Review cards work the same everywhere.
 async function docAction(e) {
-  const b = e.target.closest("[data-accept],[data-reread],[data-move]");
+  const wrong = e.target.closest("[data-recipe-wrong]");
+  if (wrong) {
+    const fix = $(".recipe-fix", wrong.closest(".recipe-card"));
+    fix.hidden = !fix.hidden;
+    if (!fix.hidden) $("textarea", fix).focus();
+    return true;
+  }
+  const b = e.target.closest("[data-accept],[data-reread],[data-move],[data-approve-recipe],[data-reject-recipe],[data-rewrite-recipe]");
   if (!b) return false;
   b.disabled = true;
   try {
-    if (b.dataset.accept) {
+    if (b.dataset.approveRecipe) {
+      b.textContent = "Reading the whole file…";
+      const v = await api("POST", `/api/recipes/${b.dataset.approveRecipe}/approve`);
+      toast(`Recipe approved: filed ${v.value_count} values`);
+    } else if (b.dataset.rejectRecipe) {
+      await api("POST", `/api/recipes/${b.dataset.rejectRecipe}/reject`);
+      toast("Recipe discarded");
+    } else if (b.dataset.rewriteRecipe) {
+      const feedback = $("textarea", b.closest(".recipe-card")).value;
+      b.textContent = "Writing a new recipe… (a minute or two)";
+      await api("POST", `/api/documents/${b.dataset.rewriteRecipe}/recipe`, { feedback });
+      toast("Here's a new recipe to check");
+    } else if (b.dataset.accept) {
       const v = await api("POST", `/api/documents/${b.dataset.accept}/accept`);
       toast(`Filed${v.values.length ? ` with ${v.values.length} value${v.values.length > 1 ? "s" : ""}` : ""}`);
     } else if (b.dataset.reread) {
@@ -1073,7 +1123,24 @@ async function loadSettings() {
   $("#ai-status").classList.remove("bad");
   if (s.ollama_url) checkModels(true);
   renderPeopleList();
+  renderRecipes();
 }
+
+async function renderRecipes() {
+  const list = await api("GET", "/api/recipes");
+  $("#recipe-list").innerHTML = list.length ? list.map(r => `<div class="recipe-row">
+      <div class="spacer"><b>${esc(r.name)}</b> <span class="small muted">· ${r.uses} file${r.uses === 1 ? "" : "s"}${r.last_used ? ` · last ${esc(fmtDate(r.last_used))}` : ""}</span>
+        <div class="small muted">${esc(r.description)}</div>
+        <details><summary class="small">The recipe</summary><pre class="script">${esc(r.script)}</pre><p class="small muted mono">${esc(r.fingerprint)}</p></details></div>
+      <button type="button" class="danger" data-del-recipe="${r.id}">Delete</button></div>`).join("")
+    : `<p class="small muted">None yet. When you drop a long table, like a glucose meter's export, the reader offers one.</p>`;
+}
+$("#recipe-list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-del-recipe]");
+  if (!b || !confirm("Delete this recipe? Values it already filed stay. Files in this format will go to the reader again.")) return;
+  try { await api("DELETE", `/api/recipes/${b.dataset.delRecipe}`); renderRecipes(); toast("Recipe deleted"); }
+  catch (err) { toast(err.message, true); }
+});
 
 function fillModelSelects(models, s) {
   const f = $("#ai-form");

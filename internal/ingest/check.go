@@ -45,7 +45,7 @@ func Check(r Result, c Content, owner Person, others []Person, today time.Time) 
 	}
 	if c.Sampled {
 		if c.Rows > 0 {
-			reasons = append(reasons, fmt.Sprintf("A table of %d rows: only the first %d were read. Reading whole tables comes with import recipes.", c.Rows, min(c.Rows, maxCSVRows)))
+			reasons = append(reasons, fmt.Sprintf("A table of %d rows, too long for the reader to copy value by value.", c.Rows))
 		} else if c.Note != "" {
 			reasons = append(reasons, c.Note)
 		} else {

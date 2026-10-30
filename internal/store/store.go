@@ -126,6 +126,7 @@ var columns = []struct{ table, col, def string }{
 	{"observations", "flag", "TEXT NOT NULL DEFAULT ''"}, // H, L, abnormal… as printed
 	{"activity", "document_id", "INTEGER"},               // the file a change was about
 	{"messages", "extra", "TEXT NOT NULL DEFAULT ''"},    // charts, opened files and changes shown with an answer
+	{"documents", "recipe_id", "INTEGER"},                // the import recipe that read it
 }
 
 const activitySchema = `
@@ -139,6 +140,24 @@ CREATE TABLE IF NOT EXISTS activity (
   undone    TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS activity_person ON activity(person_id, id);
+-- Import recipes: Starlark the model wrote for one file format, used for
+-- every file in that format once someone approves it.
+CREATE TABLE IF NOT EXISTS recipes (
+  id          INTEGER PRIMARY KEY,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL DEFAULT '',
+  description TEXT NOT NULL DEFAULT '',
+  fingerprint TEXT NOT NULL,
+  script      TEXT NOT NULL,
+  status      TEXT NOT NULL,        -- proposed, approved, rejected
+  document_id INTEGER,              -- the file it was written for
+  preview     TEXT NOT NULL DEFAULT '',
+  created     TEXT NOT NULL,
+  approved    TEXT NOT NULL DEFAULT '',
+  uses        INTEGER NOT NULL DEFAULT 0,
+  last_used   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS recipes_fingerprint ON recipes(fingerprint, status);
 CREATE INDEX IF NOT EXISTS observations_document ON observations(document_id);
 `
 

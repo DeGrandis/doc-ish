@@ -6,6 +6,7 @@ require (
 	filippo.io/age v1.3.2
 	github.com/ncruces/go-sqlite3 v0.36.0
 	github.com/suyashkumar/dicom v1.1.0
+	go.starlark.net v0.0.0-20261021141710-4f4267fb140d
 	golang.org/x/crypto v0.58.0
 	golang.org/x/image v0.47.0
 )

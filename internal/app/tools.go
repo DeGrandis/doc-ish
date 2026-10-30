@@ -432,8 +432,46 @@ func (e *toolEnv) matchNames(want string) ([]string, []string, error) {
 	return hits, all, nil
 }
 
+// inRange compares by day, so a reading at 2026-10-01T08:00 is "on"
+// 2026-10-01.
 func inRange(d, from, to string) bool {
-	return (from == "" || d >= from) && (to == "" || d <= to)
+	day := d
+	if len(day) > 10 {
+		day = day[:10]
+	}
+	return (from == "" || day >= from) && (to == "" || day <= to)
+}
+
+// maxChartPoints is where a chart switches to one point a day (the
+// average), so months of readings every few minutes stay readable.
+const maxChartPoints = 400
+
+func daily(ps []chartPoint) []chartPoint {
+	var out []chartPoint
+	var sum float64
+	var n int
+	var out1 bool
+	flush := func(day string) {
+		if n > 0 {
+			out = append(out, chartPoint{Date: day, Value: sum / float64(n), Out: out1})
+		}
+	}
+	day := ""
+	for _, p := range ps {
+		d := p.Date
+		if len(d) > 10 {
+			d = d[:10]
+		}
+		if d != day {
+			flush(day)
+			day, sum, n, out1 = d, 0, 0, false
+		}
+		sum += p.Value
+		n++
+		out1 = out1 || p.Out
+	}
+	flush(day)
+	return out
 }
 
 func (e *toolEnv) getValues(name, from, to string) (string, error) {
@@ -505,8 +543,16 @@ func (e *toolEnv) chart(want []string, from, to, title string) (string, error) {
 				missing = append(missing, n+" (no numbers in that time)")
 				continue
 			}
+			readings := len(s.Points)
+			if readings > maxChartPoints {
+				s.Points = daily(s.Points)
+				s.Name += " (daily average)"
+			}
 			spec.Series = append(spec.Series, s)
 			p := s.Points
+			if readings > len(p) {
+				report = append(report, fmt.Sprintf("%s has %d readings, drawn as %d daily averages", n, readings, len(p)))
+			}
 			lo, hi := p[0].Value, p[0].Value
 			for _, x := range p {
 				lo, hi = min(lo, x.Value), max(hi, x.Value)

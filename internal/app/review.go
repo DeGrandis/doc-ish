@@ -15,9 +15,15 @@ import (
 // docView is a file with what the reader found and the values filed from it.
 type docView struct {
 	store.Document
-	Result *json.RawMessage    `json:"result,omitempty"`
-	Values []store.Observation `json:"values"`
+	Result     *json.RawMessage    `json:"result,omitempty"`
+	Values     []store.Observation `json:"values"`
+	ValueCount int                 `json:"value_count"`
+	Recipe     *store.Recipe       `json:"recipe,omitempty"` // a draft waiting for approval, or the recipe that read it
 }
+
+// maxValuesShown caps the values sent with a file: a device export can
+// have tens of thousands; the chat and charts get them all.
+const maxValuesShown = 300
 
 func viewOf(st *store.Store, d store.Document) docView {
 	v := docView{Document: d, Values: []store.Observation{}}
@@ -26,7 +32,21 @@ func viewOf(st *store.Store, d store.Document) docView {
 		v.Result = &raw
 	}
 	if vals, err := st.DocumentObservations(d.ID); err == nil {
+		v.ValueCount = len(vals)
+		if len(vals) > maxValuesShown {
+			vals = vals[:maxValuesShown]
+		}
 		v.Values = vals
+	}
+	if d.Status == store.StatusReview {
+		if r, err := st.ProposedRecipe(d.ID); err == nil {
+			v.Recipe = &r
+		}
+	} else if d.RecipeID != nil {
+		if r, err := st.Recipe(*d.RecipeID); err == nil {
+			r.Preview = nil
+			v.Recipe = &r
+		}
 	}
 	return v
 }
@@ -238,10 +258,27 @@ func applyUndo(tx *sql.Tx, u undoOp) error {
 	if err := store.DeleteObservationsTx(tx, u.ObservationIDs); err != nil {
 		return err
 	}
+	if u.AllValues {
+		ids, err := store.DocumentObservationIDsTx(tx, u.DocumentID)
+		if err != nil {
+			return err
+		}
+		if err := store.DeleteObservationsTx(tx, ids); err != nil {
+			return err
+		}
+		if err := store.SetDocumentRecipeTx(tx, u.DocumentID, 0); err != nil {
+			return err
+		}
+	}
+	if u.RecipeID != 0 {
+		if err := store.SetRecipeStatusTx(tx, u.RecipeID, store.RecipeProposed); err != nil {
+			return err
+		}
+	}
 	switch u.Op {
 	case "observation":
 		return nil
-	case "read", "accept", "document":
+	case "read", "accept", "document", "recipe":
 		d, err := store.DocumentTx(tx, u.DocumentID)
 		if err != nil {
 			return err

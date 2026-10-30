@@ -137,6 +137,8 @@ func sniff(name string, head []byte) string {
 		return "application/dicom"
 	case ".csv":
 		return "text/csv"
+	case ".tsv", ".tab":
+		return "text/tab-separated-values"
 	case ".json":
 		return "application/json"
 	case ".xml", ".ccd", ".ccda":

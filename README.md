@@ -8,7 +8,7 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 > It is not a doctor, and the assistant can be wrong. Talk to a clinician
 > about anything that matters; in an emergency, call emergency services.
 
-## What works today (milestones 1 to 3)
+## What works today (milestones 1 to 4)
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -50,8 +50,27 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
   - "Help me fill in my profile" (or **Fill in with the assistant** on the
     Profile page) starts an intake interview that saves as it goes.
 
-The DICOM viewer, reusable import recipes for big tables, and the bundled
-medical reference are the next milestones.
+- **Import recipes for long tables.** A device export with hundreds or
+  thousands of readings (a glucose meter, a blood pressure cuff, a scale)
+  is too long for the model to copy value by value. Instead the model
+  writes a small program for that format, in
+  [Starlark](https://github.com/bazelbuild/starlark) (a small dialect of
+  Python made for running code you don't fully trust). The app tries it on
+  the file, shows the model any error, and keeps the draft that works.
+  Review shows what it found across the whole file, the first and last
+  values, and the script itself. Approve it and every later file in that
+  format is read by the recipe instantly, without the model. If it's
+  wrong, say what's wrong and it writes another.
+  - Recipes run with nothing but the file's text and a few helpers (CSV,
+    numbers with decimal commas, dates in many forms, JSON). They have no
+    files, network or clock, a cap on steps and values, and a time limit.
+  - A draft that skips most of a table's rows is sent back to the model
+    rather than accepted, and any shortfall left is shown in Review.
+  - Settings lists the approved recipes, how often each was used, and their
+    scripts.
+
+The DICOM viewer and the bundled medical reference are the next
+milestones.
 
 ## Getting started
 
@@ -93,6 +112,7 @@ internal/store      SQLite, encrypted with the data key
 internal/blobs      original files, encrypted with age
 internal/ollama     the user's Ollama: models, streaming chat, structured answers
 internal/ingest     reading files: extraction, the reader's prompt, the checks for Review
+internal/recipes    import recipes: the Starlark sandbox, table fingerprints, drafting with the model
 internal/app        HTTP API, the background reader, Review, Activity, the assistant
 web/static          UI (plain JavaScript, no build step)
 ```

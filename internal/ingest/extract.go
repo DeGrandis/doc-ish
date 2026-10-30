@@ -37,6 +37,7 @@ type Content struct {
 	Note      string   // how it was read, for the review screen
 	Dicom     *Dicom   // tags, for a DICOM image
 	Extractor string   // what read it: text, pdftotext, pdf-images, image, dicom, docx
+	Full      string   // a table's whole text, for an import recipe
 }
 
 // ErrUnsupported means there is no way to read this type yet.
@@ -63,7 +64,7 @@ func Extract(ctx context.Context, mime, filename string, r io.Reader, tmpDir str
 		return Content{}, errors.New("HEIC photos can't be read yet; on an iPhone, share or export the photo as JPEG")
 	case strings.HasPrefix(base, "image/"):
 		return extractImage(r)
-	case base == "text/csv":
+	case base == "text/csv" || base == "text/tab-separated-values":
 		return extractCSV(r)
 	case strings.Contains(base, "wordprocessingml"): // before the xml case: its type ends in +xml
 		return extractDocx(r)
@@ -113,11 +114,12 @@ func extractCSV(r io.Reader) (Content, error) {
 	if err != nil {
 		return Content{}, err
 	}
-	lines := strings.Split(strings.ReplaceAll(toText(b), "\r\n", "\n"), "\n")
+	full := toText(b)
+	lines := strings.Split(strings.ReplaceAll(full, "\r\n", "\n"), "\n")
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]
 	}
-	c := Content{Rows: max(len(lines)-1, 0), Extractor: "text", Sampled: cut}
+	c := Content{Rows: max(len(lines)-1, 0), Extractor: "text", Sampled: cut, Full: full}
 	if len(lines) > maxCSVRows+1 {
 		c.Sampled = true
 		c.Note = fmt.Sprintf("A table of %d rows; the reader saw the first %d.", c.Rows, maxCSVRows)
