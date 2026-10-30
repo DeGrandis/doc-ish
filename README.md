@@ -8,7 +8,7 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
 > It is not a doctor, and the assistant can be wrong. Talk to a clinician
 > about anything that matters; in an emergency, call emergency services.
 
-## What works today (milestones 1 to 4)
+## What works today (milestones 1 to 5)
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -69,8 +69,25 @@ of [Proof of Basis](https://proofofbasis.degrand.is).
   - Settings lists the approved recipes, how often each was used, and their
     scripts.
 
-The DICOM viewer and the bundled medical reference are the next
-milestones.
+- **A medical reference on your server.** The assistant looks things up
+  instead of trusting what a small model remembers, and says where it
+  read it:
+  - **MedlinePlus** health topics (National Library of Medicine): plain
+    explanations of about a thousand conditions, tests and terms. Built in,
+    with an Update button.
+  - **RxNorm** (NLM): every prescribable drug's ingredients, brands and
+    strengths. One button, about 70 MB.
+  - **FDA drug labels** (openFDA): what each drug is for, its warnings,
+    and its drug interactions section, so "can I take ibuprofen with my
+    lisinopril?" is answered from the labels. One button; about 1.8 GB to
+    download, about 100 MB kept.
+  - **LOINC** lab test names: its license needs a free loinc.org account,
+    so you download the release zip yourself and drop it in Settings.
+
+  The app contacts these sources only when you press a button in
+  Settings, and nothing about what you look up is sent anywhere.
+
+The DICOM viewer is the next milestone.
 
 ## Getting started
 
@@ -102,6 +119,21 @@ docker run --rm -p 127.0.0.1:8090:8080 -v "$PWD:/src" -w /src golang:1.26-alpine
 
 **Never commit real records.** `private/` and `*.real.*` are git-ignored.
 
+The MedlinePlus topics built into the binary are refreshed with:
+
+```sh
+docker run --rm -v "$PWD:/src" -w /src golang:1.26-alpine go run ./cmd/mymedical reference bundle-medlineplus
+```
+
+### Credits
+
+Health topics: MedlinePlus, National Library of Medicine. Drug names:
+RxNorm, National Library of Medicine. Drug labels: data provided by the
+U.S. Food and Drug Administration (open.fda.gov). LOINC, when you add it:
+this material contains content from LOINC (http://loinc.org), copyright ©
+Regenstrief Institute, Inc. and the LOINC Committee, available at no cost
+under the license at http://loinc.org/license.
+
 ### Layout
 
 ```
@@ -113,6 +145,7 @@ internal/blobs      original files, encrypted with age
 internal/ollama     the user's Ollama: models, streaming chat, structured answers
 internal/ingest     reading files: extraction, the reader's prompt, the checks for Review
 internal/recipes    import recipes: the Starlark sandbox, table fingerprints, drafting with the model
+internal/reference  MedlinePlus (bundled), RxNorm, FDA labels and LOINC, and the lookups over them
 internal/app        HTTP API, the background reader, Review, Activity, the assistant
 web/static          UI (plain JavaScript, no build step)
 ```

@@ -104,7 +104,7 @@ const maxAttempts = 4
 // Write asks the model for a recipe, tries it, and on an error or a bad
 // result shows the model what went wrong, up to three times. The draft
 // that comes back has been run on the whole file.
-func Write(ctx context.Context, c *ollama.Client, req WriteRequest) (Draft, error) {
+func Write(ctx context.Context, c ollama.Chatter, req WriteRequest) (Draft, error) {
 	lines := strings.Split(strings.ReplaceAll(req.Text, "\r\n", "\n"), "\n")
 	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
 		lines = lines[:len(lines)-1]

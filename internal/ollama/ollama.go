@@ -132,10 +132,21 @@ type Message struct {
 
 // ToolCall is the model asking to run a tool.
 type ToolCall struct {
+	ID       string `json:"-"` // a hosted provider's id for the call, which its result must quote
 	Function struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	} `json:"function"`
+}
+
+// Chatter is a model to talk to: this package's Client for Ollama, or a
+// hosted provider in the OpenAI format (package openai).
+type Chatter interface {
+	// Chat streams an answer to onText and returns it, with any tools the
+	// model asked to run.
+	Chat(ctx context.Context, r ChatRequest, onText func(string)) (string, []ToolCall, error)
+	// ChatJSON asks for one answer shaped by a JSON schema.
+	ChatJSON(ctx context.Context, r ChatRequest, schema any) (string, error)
 }
 
 // Tool describes a function the model may call; Parameters is a JSON
@@ -161,6 +172,10 @@ type ChatRequest struct {
 	Tools    []Tool
 }
 
+// maxAnswerTokens is the longest chat answer: a long, detailed answer is
+// well under it.
+const maxAnswerTokens = 2000
+
 // ErrNoTools means the model can't use tools.
 var ErrNoTools = errors.New("this model can't use tools")
 
@@ -172,7 +187,9 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		"messages": r.Messages,
 		"stream":   true,
 		"think":    false,
-		"options":  map[string]any{"temperature": 0.2, "num_ctx": r.NumCtx},
+		// num_predict caps an answer, so a model that starts repeating
+		// itself stops in seconds instead of filling its whole context.
+		"options": map[string]any{"temperature": 0.2, "num_ctx": r.NumCtx, "num_predict": maxAnswerTokens},
 	}
 	if len(r.Tools) > 0 {
 		body["tools"] = r.Tools

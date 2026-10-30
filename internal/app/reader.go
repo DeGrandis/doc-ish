@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/mymedical/internal/openai"
 	"github.com/DeGrandis/mymedical/internal/recipes"
 	"github.com/DeGrandis/mymedical/internal/store"
 )
@@ -70,7 +70,8 @@ func (a *App) readerStatus() readerState {
 func transient(err error) bool {
 	m := err.Error()
 	return strings.HasPrefix(m, "couldn't reach Ollama") || strings.HasPrefix(m, "Ollama didn't answer") ||
-		errors.Is(err, context.DeadlineExceeded)
+		strings.HasPrefix(m, "can't reach the provider") || strings.HasPrefix(m, "the provider didn't answer") ||
+		openai.Limited(err) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // readNext reads one waiting file. It reports whether to go on at once.
@@ -90,9 +91,9 @@ func (a *App) readNext(ctx context.Context) bool {
 	}
 	st, files := a.st, a.files
 	set = a.settings(st)
-	if set.OllamaURL == "" || set.ChatModel == "" {
+	if msg := set.ready(); msg != "" {
 		a.mu.RUnlock()
-		a.setReader(0, "Connect Ollama and pick a model in Settings to read files.")
+		a.setReader(0, "To read files, "+msg+".")
 		return false
 	}
 	var err error
@@ -151,14 +152,14 @@ func (a *App) readNext(ctx context.Context) bool {
 
 	var res ingest.Result
 	if exErr == nil {
-		c, err := ollama.New(set.OllamaURL)
+		c, err := set.chatter()
 		if err != nil {
 			exErr = err
 		} else {
 			rctx, cancel := context.WithTimeout(ctx, readTimeout)
 			res, exErr = ingest.Read(rctx, c, ingest.Request{
 				Filename: doc.Filename, PersonName: owner.Name, Today: time.Now(), Content: cont,
-				ChatModel: set.ChatModel, VisionModel: set.VisionModel, NumCtx: set.NumCtx,
+				ChatModel: set.chatModel(), VisionModel: set.visionModel(), NumCtx: set.NumCtx,
 				// A long table: an import recipe reads the values.
 				DescribeOnly: cont.Sampled && fingerprint != "",
 			})
@@ -171,10 +172,10 @@ func (a *App) readNext(ctx context.Context) bool {
 	var draft *recipes.Draft
 	var draftErr error
 	if exErr == nil && recipe == nil && cont.Sampled && fingerprint != "" {
-		if c, err := ollama.New(set.OllamaURL); err == nil {
+		if c, err := set.chatter(); err == nil {
 			wctx, cancel := context.WithTimeout(ctx, readTimeout)
 			d, err := recipes.Write(wctx, c, recipes.WriteRequest{
-				Model: set.ChatModel, NumCtx: set.NumCtx, Filename: doc.Filename, Text: cont.Full, Today: time.Now(),
+				Model: set.chatModel(), NumCtx: set.NumCtx, Filename: doc.Filename, Text: cont.Full, Today: time.Now(),
 			})
 			cancel()
 			if err == nil {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -176,6 +177,50 @@ func TestChartAndOpen(t *testing.T) {
 	// The open file was described to the model.
 	if !strings.Contains(o.seen[0], "What the user is looking at") {
 		t.Fatal("the viewed file wasn't in the prompt")
+	}
+}
+
+// A hosted provider needs the typed consent; its key never comes back to
+// the browser; and the chat goes to it with the key.
+func TestHostedProvider(t *testing.T) {
+	var auth string
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Hello from the provider.\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(provider.Close)
+	srv, c := signedIn(t, "http://127.0.0.1:1")
+	remote := map[string]any{"provider": "remote", "remote_url": provider.URL + "/v1", "remote_key": "sk-test-secret", "remote_model": "x/free", "num_ctx": 16384}
+
+	if code := call(t, c, "PUT", srv.URL+"/api/settings", remote, nil); code != 400 {
+		t.Fatalf("switched without consent: %d", code)
+	}
+	remote["consent"] = "i accept my data  leaking to a provider"
+	var got map[string]any
+	if code := call(t, c, "PUT", srv.URL+"/api/settings", remote, &got); code != 200 {
+		t.Fatalf("with consent: %d %v", code, got)
+	}
+	if got["provider"] != "remote" || got["remote_key_set"] != true {
+		t.Fatalf("settings: %v", got)
+	}
+	resp, _ := c.Get(srv.URL + "/api/settings")
+	b, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if strings.Contains(string(b), "sk-test-secret") {
+		t.Fatal("the key went back to the browser")
+	}
+
+	var text string
+	for _, ev := range chat(t, c, srv.URL+"/api/people/1/chat", "hi", 0) {
+		text += ev.T
+	}
+	if text != "Hello from the provider." || auth != "Bearer sk-test-secret" {
+		t.Fatalf("chat: %q, auth %q", text, auth)
+	}
+
+	if code := call(t, c, "PUT", srv.URL+"/api/settings", map[string]any{"forget_remote": true}, &got); code != 200 || got["provider"] != "ollama" || got["remote_key_set"] != false {
+		t.Fatalf("forget: %d %v", code, got)
 	}
 }
 

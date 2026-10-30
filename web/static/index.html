@@ -92,6 +92,7 @@
           <select id="chat-pick" aria-label="Earlier chats"></select>
           <button class="icon-btn" id="chat-new" title="New chat" aria-label="New chat"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button>
         </div>
+        <p class="hosted-note" id="hosted-note" hidden></p>
         <div class="chat-log" id="chat-log" aria-live="polite"></div>
         <form class="chat-box" id="chat-form">
           <input type="file" id="attach-input" multiple hidden>
@@ -183,18 +184,37 @@
     <h2 class="section-h">Assistant</h2>
     <p class="small muted">A model on your own <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> server reads your files and answers questions. Nothing is sent anywhere else.</p>
     <form id="ai-form" class="grid">
-      <label class="wide">Ollama address
+      <div class="wide seg" id="provider-seg" role="radiogroup" aria-label="Where the models run">
+        <button type="button" data-provider="ollama">This server's Ollama</button>
+        <button type="button" data-provider="remote">A hosted provider</button>
+      </div>
+      <div class="wide grid" id="remote-fields" hidden>
+        <p class="wide hint small neg">With a hosted provider, everything the assistant and the file reader read is sent to it: profiles, files, values. Free models may keep and train on what they're sent. Use it with test data, or only if you accept that.</p>
+        <label class="wide">Provider address <input name="remote_url" placeholder="https://openrouter.ai/api/v1"></label>
+        <label class="wide">API key <input name="remote_key" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key"><span class="small muted" id="remote-key-state"></span></label>
+        <div class="wide row"><button type="button" id="remote-check">List models</button><span class="small muted" id="remote-status"></span></div>
+        <label>Model <input name="remote_model" list="remote-models" placeholder="google/gemma-4-26b-a4b-it:free"></label>
+        <label>Model for images and scans <input name="remote_vision_model" list="remote-models-vision" placeholder="Same, if it reads images"></label>
+        <datalist id="remote-models"></datalist><datalist id="remote-models-vision"></datalist>
+        <label class="wide" id="consent-field">To switch, type: <span class="mono">I accept my data leaking to a provider</span> <input name="consent" autocomplete="off"></label>
+        <div class="wide row" id="forget-row" hidden><button type="button" class="danger" id="remote-forget">Stop using it and forget the key</button></div>
+      </div>
+      <label class="wide ollama-only">Ollama address
         <span class="row"><input name="ollama_url" placeholder="http://192.168.1.20:11434" class="grow"><button type="button" id="ai-check">Check</button></span>
         <span class="small muted" id="ai-status"></span>
       </label>
       <p class="wide small muted" id="reader-status"></p>
-      <label>Chat model <select name="chat_model"></select><span class="small muted">Needs tool use. Models without it are greyed out.</span></label>
-      <label>Model for images and scans <select name="vision_model"></select><span class="small muted">Needs vision. Can be the same model.</span></label>
-      <label>Memory for each question <select name="num_ctx">
+      <label class="ollama-only">Chat model <select name="chat_model"></select><span class="small muted">Needs tool use. Models without it are greyed out.</span></label>
+      <label class="ollama-only">Model for images and scans <select name="vision_model"></select><span class="small muted">Needs vision. Can be the same model.</span></label>
+      <label class="ollama-only">Memory for each question <select name="num_ctx">
         <option value="8192">8k tokens</option><option value="16384">16k tokens</option><option value="32768">32k tokens</option><option value="65536">64k tokens</option>
       </select></label>
       <div class="wide row"><button class="primary" type="submit">Save</button></div>
     </form>
+
+    <h2 class="section-h">Reference data</h2>
+    <p class="small muted">Public medical references the assistant looks things up in, kept on this server. The app contacts these sources only when you press a button here, and what you look up is never sent anywhere.</p>
+    <div id="ref-list"></div>
 
     <h2 class="section-h">Import recipes</h2>
     <p class="small muted">Small programs the reader wrote for formats it saw before, like a device's export. Each was approved by someone here, and it reads its format in full without the model. They run with no access to anything but the file.</p>

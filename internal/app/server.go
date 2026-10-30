@@ -22,6 +22,7 @@ import (
 
 	"github.com/DeGrandis/mymedical/internal/blobs"
 	"github.com/DeGrandis/mymedical/internal/brand"
+	"github.com/DeGrandis/mymedical/internal/reference"
 	"github.com/DeGrandis/mymedical/internal/store"
 	"github.com/DeGrandis/mymedical/internal/vault"
 )
@@ -46,7 +47,10 @@ type App struct {
 	sessions map[string]time.Time // token -> last use
 	fails    map[string]failure   // remote IP -> wrong passwords
 
-	build    string        // fingerprint of the UI files, so an open page can tell it's out of date
+	build    string         // fingerprint of the UI files, so an open page can tell it's out of date
+	ref      *reference.Ref // public reference data; not personal, so not locked
+	job      refJob         // the reference download running, if any
+	ctx      context.Context
 	wake     chan struct{} // nudges the file reader
 	stop     context.CancelFunc
 	readerMu sync.Mutex
@@ -63,7 +67,12 @@ const sessionIdle = 30 * 24 * time.Hour
 func New(cfg Config) (*App, error) {
 	a := &App{cfg: cfg, sessions: map[string]time.Time{}, fails: map[string]failure{}, wake: make(chan struct{}, 1), build: uiBuild(cfg.Web)}
 	ctx, stop := context.WithCancel(context.Background())
-	a.stop = stop
+	a.ctx, a.stop = ctx, stop
+	if ref, err := reference.Open(cfg.DataDir); err != nil {
+		log.Printf("reference data: %v", err) // the app works without it
+	} else {
+		a.ref = ref
+	}
 	go a.readLoop(ctx)
 	if cfg.Password != "" && vault.Exists(cfg.DataDir) {
 		key, err := vault.Unlock(cfg.DataDir, cfg.Password)
@@ -130,6 +139,9 @@ func (a *App) unlocked() bool {
 func (a *App) Close() {
 	a.stop()
 	a.lock()
+	if a.ref != nil {
+		a.ref.Close()
+	}
 }
 
 // Handler is the whole HTTP surface.
@@ -176,6 +188,9 @@ func (a *App) Handler() http.Handler {
 	auth("POST /api/recipes/{id}/reject", a.handleRejectRecipe)
 	auth("DELETE /api/recipes/{id}", a.handleDeleteRecipe)
 	auth("POST /api/documents/{id}/recipe", a.handleRewriteRecipe)
+	auth("GET /api/reference", a.handleReference)
+	auth("POST /api/reference/{source}/download", a.handleReferenceDownload)
+	auth("POST /api/reference/loinc", a.handleLOINC)
 
 	auth("GET /api/people/{id}/chats", a.handleChats)
 	auth("GET /api/chats/{id}", a.handleChatMessages)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/DeGrandis/mymedical/internal/ingest"
 	"github.com/DeGrandis/mymedical/internal/ollama"
+	"github.com/DeGrandis/mymedical/internal/reference"
 	"github.com/DeGrandis/mymedical/internal/store"
 )
 
@@ -33,6 +34,7 @@ type toolUse struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 	Doc   int64  `json:"doc,omitempty"`
+	URL   string `json:"url,omitempty"` // a source to read more, like a MedlinePlus page
 }
 
 type change struct {
@@ -62,6 +64,7 @@ type chartPoint struct {
 // toolEnv is one chat turn's view of the records.
 type toolEnv struct {
 	st    *store.Store
+	ref   *reference.Ref // may be nil
 	pid   int64
 	today time.Time
 	emit  func(any)
@@ -104,6 +107,14 @@ var assistantTools = []ollama.Tool{
 			"names": map[string]any{"type": "array", "items": str, "description": "measurement names, up to 4"},
 			"from":  describe("string", "YYYY-MM-DD"), "to": describe("string", "YYYY-MM-DD"), "title": str,
 		}, "names")},
+	{Name: "explain", Description: "Look up a condition, symptom, test or medical term in MedlinePlus (the National Library of Medicine's plain-language reference). Use it before explaining what something means, and base the explanation on it.",
+		Parameters: obj(map[string]any{"topic": describe("string", "the condition, test or term, like \"A1C\", \"high cholesterol\", \"vitamin D deficiency\"")}, "topic")},
+	{Name: "lookup_drug", Description: "Look up a medication by brand or generic name: its active ingredient, brand names, strengths, and from its FDA label what it's for, boxed warning, contraindications and warnings.",
+		Parameters: obj(map[string]any{"name": str}, "name")},
+	{Name: "drug_interactions", Description: "Check whether the FDA labels of two or more medications mention each other in their drug interactions sections. Include every medication the person takes when asked about interactions.",
+		Parameters: obj(map[string]any{"drugs": map[string]any{"type": "array", "items": str, "description": "medication names, two or more"}}, "drugs")},
+	{Name: "lab_test", Description: "Look up a lab test by name: its standard (LOINC) name and units when available, and what MedlinePlus says about it.",
+		Parameters: obj(map[string]any{"name": str}, "name")},
 	{Name: "note_value", Description: "Save a measurement the user tells you: weight, blood pressure, glucose, temperature, a symptom score. Use the same name as existing measurements. For blood pressure save two: \"Blood pressure systolic\" and \"Blood pressure diastolic\" in mmHg.",
 		Parameters: obj(map[string]any{
 			"name":       str,
@@ -173,10 +184,38 @@ func (e *toolEnv) dispatch(name string, a map[string]any) (string, error) {
 		return e.chart(names, sArg(a, "from"), sArg(a, "to"), sArg(a, "title"))
 	case "note_value":
 		return e.noteValue(a)
+	case "explain":
+		return e.explain(sArg(a, "topic"))
+	case "lookup_drug":
+		return e.lookupDrug(sArg(a, "name"))
+	case "drug_interactions":
+		return e.drugInteractions(strList(a["drugs"]))
+	case "lab_test":
+		return e.labTest(sArg(a, "name"))
 	case "update_profile":
 		return e.updateProfile(sArg(a, "field"), sArg(a, "action"), sArg(a, "value"), sArg(a, "name"), sArg(a, "detail"), sArg(a, "since"))
 	}
 	return "", fmt.Errorf("there's no tool called %q", name)
+}
+
+// strList reads a list of strings, or one comma-separated string.
+func strList(v any) []string {
+	var out []string
+	switch x := v.(type) {
+	case []any:
+		for _, n := range x {
+			if s, ok := n.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	case string:
+		for _, s := range strings.Split(x, ",") {
+			if strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	}
+	return out
 }
 
 func sArg(a map[string]any, k string) string {
@@ -198,6 +237,13 @@ func iArg(a map[string]any, k string) int64 {
 		return n
 	}
 	return 0
+}
+
+// noteLink shows a lookup with a link to its source.
+func (e *toolEnv) noteLink(name, label, url string) {
+	t := toolUse{Name: name, Label: label, URL: url}
+	e.extra.Tools = append(e.extra.Tools, t)
+	e.emit(map[string]any{"tool": t})
 }
 
 func (e *toolEnv) note(name, label string, doc int64) {

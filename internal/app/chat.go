@@ -106,8 +106,8 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		set = a.settings(st)
-		if set.OllamaURL == "" || set.ChatModel == "" {
-			writeErr(w, 400, "connect Ollama and pick a model in Settings first")
+		if msg := set.ready(); msg != "" {
+			writeErr(w, 400, msg)
 			failed = true
 			return
 		}
@@ -141,7 +141,7 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client, err := ollama.New(set.OllamaURL)
+	client, err := set.chatter()
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -170,6 +170,7 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	extra := &msgExtra{}
 	reply, err := a.converse(r.Context(), client, set, pid, msgs, extra, send)
+	reply = strings.TrimSpace(reply) // some providers pad answers with blank lines
 	if strings.TrimSpace(reply) != "" || len(extra.Tools) > 0 {
 		a.mu.RLock()
 		if a.st != nil {
@@ -193,7 +194,7 @@ const maxRounds = 6
 // run against the records and their results go back, until it answers.
 // Text streams to the browser as it comes; so do charts, opened files and
 // changes, as events.
-func (a *App) converse(ctx context.Context, client *ollama.Client, set Settings, pid int64, msgs []ollama.Message,
+func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings, pid int64, msgs []ollama.Message,
 	extra *msgExtra, send func(any)) (string, error) {
 	tools := assistantTools
 	var reply strings.Builder
@@ -201,7 +202,7 @@ func (a *App) converse(ctx context.Context, client *ollama.Client, set Settings,
 		if round == maxRounds {
 			tools = nil // make it answer with what it has
 		}
-		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.ChatModel, Messages: msgs, NumCtx: set.NumCtx, Tools: tools},
+		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.chatModel(), Messages: msgs, NumCtx: set.NumCtx, Tools: tools},
 			func(t string) {
 				reply.WriteString(t)
 				send(map[string]string{"t": t})
@@ -218,7 +219,7 @@ func (a *App) converse(ctx context.Context, client *ollama.Client, set Settings,
 		if len(calls) == 0 || tools == nil {
 			return reply.String(), nil
 		}
-		if text != "" {
+		if strings.TrimSpace(text) != "" {
 			reply.WriteString("\n\n")
 			send(map[string]string{"t": "\n\n"})
 		}
@@ -229,7 +230,7 @@ func (a *App) converse(ctx context.Context, client *ollama.Client, set Settings,
 			if a.st == nil {
 				result = "Error: the records were locked."
 			} else {
-				env := &toolEnv{st: a.st, pid: pid, today: time.Now(), emit: send, extra: extra}
+				env := &toolEnv{st: a.st, ref: a.ref, pid: pid, today: time.Now(), emit: send, extra: extra}
 				result = env.run(c)
 			}
 			a.mu.RUnlock()
@@ -276,6 +277,7 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 - You may explain what results and medical terms mean, point out values outside their reference range, say what you notice, what could explain it and what might be worth asking a doctor about. You are not their doctor and this is not a diagnosis. If something could be urgent or serious, say so plainly and suggest contacting a clinician.
 - Be concise and concrete: short paragraphs or bullet lists, values with units, dates as YYYY-MM-DD.
 - Below is the profile, the files with a short summary of each, and the latest value of every measurement. For anything more, use your tools and answer from what they return: read_file for what a file says, get_values for every reading of something over time, search_files to find files.
+- Before explaining what a condition, symptom, test or term means, call explain (MedlinePlus) and base the explanation on what it returns, mentioning MedlinePlus. For a medication, call lookup_drug. When asked whether medications go together, or about side effects of a combination, call drug_interactions with every medication involved, and quote what the FDA labels say. If the reference has nothing, say so instead of filling in from memory.
 - When the user asks how something is trending, or for a graph or chart, call chart, then describe the trend in a sentence or two.
 - When the user asks to see, pull up or open a file, call open_file.
 - When the user tells you a measurement ("weight 182 today", "BP 128/82 this morning"), save it with note_value right away, then confirm in one short line. When they tell you about an allergy, condition, medication, surgery, family history, vaccination or doctor, or their birth date, sex, height or blood type, save it with update_profile. Every change shows to them with an Undo button, so don't ask "shall I save it?" first. When they give several things at once (two family members, three medications), call the tool once for each.

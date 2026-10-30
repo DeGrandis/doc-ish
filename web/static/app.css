@@ -39,6 +39,8 @@
 .chat-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
 .chat-head select { max-width: 220px; min-height: 34px; padding-top: 6px; padding-bottom: 6px; font-size: var(--fs-sm); }
 .chat-head .icon-btn { width: 34px; height: 34px; }
+.hosted-note { margin: var(--s-2) 0 0; padding: 6px 12px; border-radius: var(--r-sm); background: var(--neg-soft); color: var(--neg); font-size: var(--fs-xs); }
+#provider-seg { justify-self: start; }
 .chat-log { flex: 1; overflow-y: auto; padding: var(--s-5) 0; display: flex; flex-direction: column; gap: var(--s-4); }
 .msg { max-width: 760px; line-height: 1.55; overflow-wrap: anywhere; }
 .msg.user { align-self: flex-end; background: var(--panel-2); padding: 10px 16px; border-radius: 20px 20px 6px 20px; white-space: pre-wrap; max-width: 80%; }
@@ -166,6 +168,10 @@ pre.script { font-family: var(--mono); font-size: var(--fs-xs); background: var(
 .recipe-actions, .recipe-fix { margin-top: var(--s-4); }
 .recipe-fix textarea { width: 100%; }
 .recipe-fix .row { margin-top: var(--s-2); }
+.ref-row { display: flex; align-items: flex-start; gap: var(--s-3); padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ref-row .credit { margin-top: 2px; font-size: var(--fs-xs); }
+.file-btn { cursor: pointer; white-space: nowrap; }
+.tool-chip.source { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .recipe-row { display: flex; align-items: flex-start; gap: var(--s-3); padding: 12px 0; border-bottom: 1px solid var(--line); }
 
 /* ---------- Review ---------- */

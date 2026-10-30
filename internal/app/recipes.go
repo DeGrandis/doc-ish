@@ -11,7 +11,6 @@ import (
 
 	"github.com/DeGrandis/mymedical/internal/blobs"
 	"github.com/DeGrandis/mymedical/internal/ingest"
-	"github.com/DeGrandis/mymedical/internal/ollama"
 	"github.com/DeGrandis/mymedical/internal/recipes"
 	"github.com/DeGrandis/mymedical/internal/store"
 )
@@ -179,11 +178,11 @@ func (a *App) handleRewriteRecipe(w http.ResponseWriter, r *http.Request) {
 	if failed {
 		return
 	}
-	if set.OllamaURL == "" || set.ChatModel == "" {
-		writeErr(w, 400, "connect Ollama and pick a model in Settings first")
+	if msg := set.ready(); msg != "" {
+		writeErr(w, 400, msg)
 		return
 	}
-	c, err := ollama.New(set.OllamaURL)
+	c, err := set.chatter()
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -191,7 +190,7 @@ func (a *App) handleRewriteRecipe(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), readTimeout)
 	defer cancel()
 	draft, err := recipes.Write(ctx, c, recipes.WriteRequest{
-		Model: set.ChatModel, NumCtx: set.NumCtx, Filename: d.Filename, Text: text, Today: time.Now(),
+		Model: set.chatModel(), NumCtx: set.NumCtx, Filename: d.Filename, Text: text, Today: time.Now(),
 		Feedback: strings.TrimSpace(req.Feedback), Previous: previous,
 	})
 	if err != nil {

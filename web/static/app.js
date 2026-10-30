@@ -189,6 +189,7 @@ async function startApp() {
   const p = state.people.find(x => x.id === want) || state.people[0];
   await selectPerson(p ? p.id : 0, true);
   route();
+  checkHosted();
 }
 
 async function loadPeople() {
@@ -762,7 +763,9 @@ function addChips(el, tools) {
   for (const t of tools) {
     row.insertAdjacentHTML("beforeend", t.doc
       ? `<a class="tool-chip" href="#home/doc/${t.doc}">${esc(t.label)}</a>`
-      : `<span class="tool-chip">${esc(t.label)}</span>`);
+      : t.url && /^https:\/\/medlineplus\.gov\//.test(t.url)
+        ? `<a class="tool-chip source" href="${esc(t.url)}" target="_blank" rel="noopener noreferrer" title="Opens MedlinePlus">${esc(t.label)} ↗</a>`
+        : `<span class="tool-chip">${esc(t.label)}</span>`);
   }
 }
 
@@ -1122,9 +1125,79 @@ async function loadSettings() {
   $("#ai-status").textContent = s.ollama_found ? "Found on your server." : "";
   $("#ai-status").classList.remove("bad");
   if (s.ollama_url) checkModels(true);
+  f.remote_url.value = s.remote_url;
+  f.remote_model.value = s.remote_model;
+  f.remote_vision_model.value = s.remote_vision_model;
+  f.remote_key.value = "";
+  f.consent.value = "";
+  $("#remote-key-state").textContent = s.remote_key_set ? "A key is saved (it's never shown)." : "No key saved.";
+  state.settings = s;
+  showProvider(s.provider);
   renderPeopleList();
   renderRecipes();
+  renderReference();
 }
+
+// ---------- reference data ----------
+
+const REF_INFO = {
+  medlineplus: ["MedlinePlus health topics", "Plain-language explanations of over a thousand conditions, tests and terms, from the National Library of Medicine. Built in; update for the latest."],
+  rxnorm: ["RxNorm drug names", "Every prescribable drug's ingredients, brand names and strengths, from the National Library of Medicine."],
+  openfda: ["FDA drug labels", "What each drug is for, its warnings and its interactions section, from the FDA. A big download, run once."],
+  loinc: ["LOINC lab test names", "The standard names of lab tests. Its license needs a free account, so download it yourself from loinc.org (the full release zip) and drop it here."],
+};
+let refTimer = 0;
+
+async function renderReference() {
+  clearTimeout(refTimer);
+  let r;
+  try { r = await api("GET", "/api/reference"); } catch (err) { $("#ref-list").textContent = err.message; return; }
+  const job = r.job || {};
+  $("#ref-list").innerHTML = r.sources.map(s => {
+    const [title, what] = REF_INFO[s.source];
+    const running = job.running && job.source === s.source;
+    const have = s.items > 0;
+    let state = have ? `${s.items.toLocaleString()} ${s.source === "loinc" ? "tests" : s.source === "medlineplus" ? "topics" : s.source === "rxnorm" ? "names" : "labels"} · ${esc(s.version)}` : "Not downloaded";
+    if (running) {
+      const pct = job.total > 0 ? ` ${Math.floor(job.done / job.total * 100)}%` : job.done > 0 ? ` ${fmtSize(job.done)}` : "";
+      state = `<span class="typing"></span> ${esc(job.stage)}${pct}`;
+    } else if (job.source === s.source && job.error) {
+      state += ` · <span class="neg">Last try failed: ${esc(job.error)}</span>`;
+    }
+    const action = s.source === "loinc"
+      ? `<label class="btn file-btn">${have ? "Replace" : "Add"} LOINC zip<input type="file" accept=".zip" data-loinc hidden></label>`
+      : `<button type="button" data-ref-download="${s.source}" ${job.running ? "disabled" : ""}>${have ? "Update" : "Download"}</button>`;
+    return `<div class="ref-row">
+      <div class="spacer"><b>${esc(title)}</b> <span class="small muted">${state}</span>
+        <div class="small muted">${esc(what)}${r.downloads[s.source] ? ` Download: ${esc(r.downloads[s.source])}.` : ""}</div>
+        <div class="small muted credit">${esc(s.credit)}</div></div>
+      ${action}</div>`;
+  }).join("");
+  if (job.running) refTimer = setTimeout(renderReference, 1500);
+}
+
+$("#ref-list").addEventListener("click", async e => {
+  const b = e.target.closest("[data-ref-download]");
+  if (!b) return;
+  if (b.dataset.refDownload === "openfda" && !confirm("Download the FDA drug labels? It's about 1.8 GB and takes a while; the app keeps about 100 MB of it.")) return;
+  try { await api("POST", `/api/reference/${b.dataset.refDownload}/download`); renderReference(); }
+  catch (err) { toast(err.message, true); }
+});
+$("#ref-list").addEventListener("change", async e => {
+  const input = e.target.closest("[data-loinc]");
+  if (!input || !input.files.length) return;
+  const fd = new FormData();
+  fd.append("file", input.files[0], input.files[0].name);
+  toast("Importing LOINC… (a minute or so)");
+  try {
+    const r = await fetch("/api/reference/loinc", { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    toast(`Imported ${j.tests.toLocaleString()} LOINC lab tests`);
+  } catch (err) { toast(err.message, true); }
+  input.value = "";
+  renderReference();
+});
 
 async function renderRecipes() {
   const list = await api("GET", "/api/recipes");
@@ -1177,14 +1250,71 @@ async function checkModels(quiet) {
   }
 }
 $("#ai-check").addEventListener("click", () => checkModels());
+
+// The provider switch: this server's Ollama, or a hosted provider, which
+// needs the consent sentence typed the first time.
+function showProvider(p) {
+  $("#ai-form").dataset.provider = p;
+  $$("#provider-seg button").forEach(b => b.classList.toggle("on", b.dataset.provider === p));
+  $("#remote-fields").hidden = p !== "remote";
+  $$(".ollama-only").forEach(el => (el.hidden = p === "remote"));
+  const agreed = !!(state.settings && state.settings.remote_consent);
+  $("#consent-field").hidden = agreed;
+  $("#forget-row").hidden = !agreed;
+}
+$("#provider-seg").addEventListener("click", e => {
+  const b = e.target.closest("[data-provider]");
+  if (b) showProvider(b.dataset.provider);
+});
+
+$("#remote-check").addEventListener("click", async () => {
+  const f = $("#ai-form"), st = $("#remote-status");
+  st.textContent = "Asking…";
+  try {
+    const url = "/api/models?provider=remote&url=" + encodeURIComponent(f.remote_url.value.trim());
+    const r = await fetch(url, { headers: f.remote_key.value ? { "X-Remote-Key": f.remote_key.value.trim() } : {} });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    const usable = j.models.filter(m => m.tools);
+    const free = usable.filter(m => m.name.endsWith(":free"));
+    $("#remote-models").innerHTML = usable.map(m => `<option value="${esc(m.name)}">`).join("");
+    $("#remote-models-vision").innerHTML = usable.filter(m => m.vision).map(m => `<option value="${esc(m.name)}">`).join("");
+    st.textContent = `${usable.length} models can use tools${free.length ? `, ${free.length} of them free (names ending in :free)` : ""}. Start typing in Model.`;
+  } catch (err) { st.textContent = err.message; }
+});
+
+$("#remote-forget").addEventListener("click", async () => {
+  if (!confirm("Stop using the hosted provider and forget its key? The models go back to this server's Ollama.")) return;
+  try { await api("PUT", "/api/settings", { forget_remote: true }); toast("Back to this server's Ollama"); loadSettings(); }
+  catch (err) { toast(err.message, true); }
+});
+
 $("#ai-form").addEventListener("submit", async e => {
   e.preventDefault();
   const f = e.target;
   try {
-    await api("PUT", "/api/settings", { ollama_url: f.ollama_url.value, chat_model: f.chat_model.value, vision_model: f.vision_model.value, num_ctx: +f.num_ctx.value });
+    await api("PUT", "/api/settings", {
+      provider: f.dataset.provider || "ollama",
+      ollama_url: f.ollama_url.value, chat_model: f.chat_model.value, vision_model: f.vision_model.value, num_ctx: +f.num_ctx.value,
+      remote_url: f.remote_url.value, remote_key: f.remote_key.value, remote_model: f.remote_model.value,
+      remote_vision_model: f.remote_vision_model.value, consent: f.consent.value,
+    });
     toast("Saved");
+    loadSettings();
+    checkHosted();
   } catch (err) { toast(err.message, true); }
 });
+
+// A line above the chat whenever records go to a hosted provider, so
+// nobody forgets.
+async function checkHosted() {
+  try {
+    const s = await api("GET", "/api/settings");
+    const el = $("#hosted-note");
+    el.hidden = s.provider !== "remote";
+    if (!el.hidden) el.textContent = `Hosted: ${s.remote_model || "no model"} on ${new URL(s.remote_url).hostname}. What you ask, and the records it needs, leave this server.`;
+  } catch {}
+}
 
 function renderPeopleList() {
   $("#people-list").innerHTML = state.people.map(p => `<div class="people-row">${avatar(p)}<span class="spacer">${esc(p.name)}</span>

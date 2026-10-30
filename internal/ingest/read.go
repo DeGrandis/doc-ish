@@ -114,7 +114,7 @@ const describeRows = 30
 
 // Read asks the model about the file and returns its tidied answer. A
 // DICOM file is described from its tags without a model.
-func Read(ctx context.Context, c *ollama.Client, req Request) (Result, error) {
+func Read(ctx context.Context, c ollama.Chatter, req Request) (Result, error) {
 	if req.Content.Dicom != nil {
 		return dicomResult(req.Content.Dicom), nil
 	}
