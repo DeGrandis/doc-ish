@@ -1,0 +1,151 @@
+/* Page layouts. Tokens and components are in theme.css. */
+
+/* ---------- Gate: setup, sign in, recover ---------- */
+#gate { min-height: 100vh; display: grid; place-items: center; padding: var(--s-5) var(--s-4);
+  background: radial-gradient(60% 50% at 20% 0%, var(--accent-soft), transparent 70%), var(--bg); }
+.gate-card { width: min(420px, 100%); display: flex; flex-direction: column; gap: var(--s-4); }
+.gate-card form, .gate-card > div:not(.brand) { display: flex; flex-direction: column; gap: var(--s-4); }
+.gate-brand { margin-bottom: var(--s-4); }
+.gate-title { font-family: var(--font-display); font-size: 30px; font-weight: 300; letter-spacing: -.02em; line-height: 1.15; }
+.gate-card p { margin: 0; }
+.gate-card .err { color: var(--neg); min-height: 1em; }
+.gate-card button.primary { min-height: 44px; font-size: var(--fs-md); }
+.gate-card button.link { align-self: center; }
+.recovery-key { font-size: 20px; letter-spacing: .06em; line-height: 1.6; padding: var(--s-4) var(--s-5); border-radius: var(--r-sm); background: var(--panel-2); word-spacing: .2em; text-align: center; user-select: all; }
+
+/* ---------- Header: the person picker ---------- */
+.person-btn { margin-left: var(--s-2); border-color: var(--line); padding: 4px 12px 4px 4px; min-height: 40px; gap: 8px; font-size: var(--fs); }
+.person-btn .chev { width: 14px; height: 14px; color: var(--muted); }
+.person-btn.single { cursor: default; pointer-events: none; }
+.person-btn.single .chev { display: none; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff; background: var(--muted); flex: none; }
+.menu .avatar { width: 24px; height: 24px; font-size: 11px; }
+.menu button.on { font-weight: 700; }
+#person-menu { top: calc(var(--nav-h) - 6px); left: 150px; }
+@media (max-width: 760px) {
+  .person-btn { margin-left: 0; }
+  #person-menu { left: var(--s-4); right: var(--s-4); }
+}
+
+/* ---------- Home: chat beside the summary or viewer ---------- */
+@media (min-width: 961px) { body[data-tab="home"] main { padding-bottom: 0; } }
+.home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: var(--s-6); align-items: start; }
+.home.viewing { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+.side { position: sticky; top: calc(var(--nav-h) + var(--s-4)); max-height: calc(100vh - var(--nav-h) - var(--s-6)); overflow: auto; padding-bottom: var(--s-4); }
+.chat { display: flex; flex-direction: column; height: calc(100vh - var(--nav-h) - var(--s-6)); min-height: 420px; }
+.chat-head { display: flex; align-items: center; gap: var(--s-2); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.chat-head select { max-width: 220px; min-height: 34px; padding-top: 6px; padding-bottom: 6px; font-size: var(--fs-sm); }
+.chat-head .icon-btn { width: 34px; height: 34px; }
+.chat-log { flex: 1; overflow-y: auto; padding: var(--s-5) 0; display: flex; flex-direction: column; gap: var(--s-4); }
+.msg { max-width: 760px; line-height: 1.55; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; background: var(--panel-2); padding: 10px 16px; border-radius: 20px 20px 6px 20px; white-space: pre-wrap; max-width: 80%; }
+.msg.assistant p { margin: 0 0 .7em; } .msg.assistant p:last-child { margin-bottom: 0; }
+.msg.assistant ul, .msg.assistant ol { margin: 0 0 .7em; padding-left: 1.3em; }
+.msg.assistant h3, .msg.assistant h4 { font-size: var(--fs-md); font-weight: 600; margin: .8em 0 .3em; }
+.msg.assistant pre { background: var(--panel-2); padding: var(--s-3); border-radius: var(--r-sm); overflow-x: auto; font-size: var(--fs-sm); }
+.msg.assistant table { margin: .4em 0 .8em; font-size: var(--fs-sm); }
+.msg.err { color: var(--neg); }
+.msg.note { align-self: center; font-size: var(--fs-sm); color: var(--muted); }
+.msg .typing { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+.chat-empty { margin: auto 0; display: flex; flex-direction: column; gap: var(--s-4); align-items: flex-start; }
+.chat-empty h2 { font-family: var(--font-display); font-size: var(--fs-hero); font-weight: 700; letter-spacing: -.03em; line-height: 1; margin: 0; }
+.chat-empty .hi { color: var(--accent-text); }
+.chat-empty .row button { font-size: var(--fs-sm); }
+.chat-box { display: flex; align-items: flex-end; gap: var(--s-2); padding: var(--s-2); border: 1px solid var(--line-2); border-radius: 26px; background: var(--panel); }
+.chat-box:focus-within { box-shadow: 0 0 0 3px var(--accent-soft); }
+.chat-box textarea { flex: 1; background: transparent; border: 0; box-shadow: none; resize: none; max-height: 200px; padding: 9px 4px; min-height: 40px; }
+.chat-box textarea:focus { box-shadow: none; background: transparent; border: 0; }
+.chat-box .icon-btn { border: 0; background: transparent; color: var(--muted); }
+.chat-box .icon-btn:hover { color: var(--text); }
+.chat-box .send { background: var(--accent); color: var(--accent-ink); }
+.chat-box .send:hover { color: var(--accent-ink); opacity: .9; }
+.camera-only { display: none; }
+@media (pointer: coarse) { .camera-only { display: inline-flex; } }
+
+/* Summary card: the person at a glance */
+.who { display: flex; align-items: center; gap: var(--s-3); margin: var(--s-3) 0 var(--s-2); }
+.who .avatar { width: 48px; height: 48px; font-size: 20px; }
+.who h2 { font-family: var(--font-display); font-size: 30px; font-weight: 300; letter-spacing: -.02em; margin: 0; line-height: 1.1; }
+.who .sub { color: var(--muted); font-size: var(--fs-sm); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: var(--s-3) 0; }
+.side .eyebrow { display: block; margin: var(--s-5) 0 var(--s-2); }
+.side .hint { margin: var(--s-4) 0; font-size: var(--fs-sm); }
+.doc-list { list-style: none; margin: 0; padding: 0; }
+.doc-list li { border-bottom: 1px solid var(--line); }
+.doc-list li:last-child { border-bottom: 0; }
+.doc-list button { all: unset; box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: var(--s-3); padding: 10px 0; cursor: pointer; }
+.doc-list button:hover .t { text-decoration: underline; text-underline-offset: 3px; }
+.doc-list button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-radius: var(--r-xs); }
+.doc-list .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-list .d { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
+.ficon { width: 32px; height: 32px; border-radius: 10px; background: var(--panel-2); display: grid; place-items: center; flex: none; font-size: 9px; font-weight: 700; letter-spacing: .04em; color: var(--text-2); text-transform: uppercase; }
+
+/* Viewer: an open file beside the chat */
+.viewer-head { display: flex; align-items: flex-start; gap: var(--s-3); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.viewer-head h2 { margin: 0; font-size: var(--fs-lg); overflow-wrap: anywhere; }
+.viewer-head .sub { color: var(--muted); font-size: var(--fs-sm); margin-top: 2px; }
+.viewer-head .icon-btn { width: 34px; height: 34px; }
+.viewer-body { margin-top: var(--s-4); }
+.viewer-body img { max-width: 100%; border-radius: var(--r-sm); display: block; background: var(--panel-2); }
+.viewer-body iframe { width: 100%; height: calc(100vh - var(--nav-h) - 220px); min-height: 420px; border: 1px solid var(--line); border-radius: var(--r-sm); background: #fff; }
+.viewer-body pre { white-space: pre-wrap; font-size: var(--fs-sm); background: var(--panel-2); padding: var(--s-4); border-radius: var(--r-sm); max-height: 70vh; overflow: auto; }
+.viewer-body .csv { max-height: 70vh; overflow: auto; font-size: var(--fs-sm); }
+.viewer-body .csv td, .viewer-body .csv th { white-space: nowrap; padding: 6px 10px; }
+.viewer-meta { margin-top: var(--s-5); }
+.viewer-meta summary { font-size: var(--fs-sm); }
+.viewer-meta .grid { margin-top: var(--s-3); }
+
+/* Phones: one column. The chat fills the screen; the summary sits above
+   it, and an open file covers the page until it's closed. */
+@media (max-width: 960px) {
+  .home, .home.viewing { grid-template-columns: 1fr; gap: var(--s-3); }
+  .side { position: static; max-height: none; order: -1; }
+  #tabs { z-index: 31; } /* stays above an open file */
+  .home.viewing .side { position: fixed; inset: var(--nav-h) 0 0 0; z-index: 30; background: var(--bg); padding: 0 var(--s-4) calc(var(--tabbar-h) + 40px); overflow: auto; }
+  .chat { height: auto; min-height: 60vh; }
+  .chat-log { min-height: 30vh; }
+  .chat-box { position: sticky; bottom: calc(var(--tabbar-h) + 20px); }
+  .summary-more { display: none; }
+}
+@media (min-width: 961px) and (max-width: 1100px) { .home { grid-template-columns: minmax(0, 1fr) 300px; } }
+
+/* ---------- Files ---------- */
+.files-bar { margin: var(--s-5) 0 var(--s-2); }
+.files-bar input { width: min(320px, 100%); }
+#files-table tbody tr { cursor: pointer; }
+#files-table tbody tr:hover td { background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+#files-table td .fn { display: flex; align-items: center; gap: var(--s-3); }
+#files-table td .fn span { overflow-wrap: anywhere; }
+@media (max-width: 760px) { #files-table th:nth-child(4), #files-table td:nth-child(4), #files-table th:nth-child(5), #files-table td:nth-child(5) { display: none; } }
+
+/* ---------- Profile ---------- */
+.profile-head { display: flex; align-items: center; gap: var(--s-3); position: sticky; top: var(--nav-h); background: var(--bg); z-index: 5; padding: var(--s-2) 0; }
+.profile-head .page-title { margin: var(--s-3) 0; }
+.plist { display: flex; flex-direction: column; gap: var(--s-2); }
+.plist .item { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) minmax(0, .8fr) 36px; gap: var(--s-2); align-items: center; }
+.plist .item .icon-btn { width: 34px; height: 34px; border: 0; color: var(--muted); }
+.plist .item .icon-btn:hover { color: var(--neg); }
+.plist-add { align-self: flex-start; margin-top: var(--s-1); }
+.plist-help { margin: -4px 0 var(--s-3); }
+@media (max-width: 760px) {
+  .plist .item { grid-template-columns: 1fr 36px; }
+  .plist .item input:nth-child(2), .plist .item input:nth-child(3) { grid-column: 1; }
+  .plist .item .icon-btn { grid-row: 1; grid-column: 2; }
+  .plist .item { padding-bottom: var(--s-2); border-bottom: 1px solid var(--line); }
+}
+
+/* ---------- Settings ---------- */
+.grow { flex: 1; min-width: 200px; }
+#ai-form .row { flex-wrap: nowrap; }
+#ai-status.bad { color: var(--neg); }
+.people-row { display: flex; align-items: center; gap: var(--s-3); padding: 10px 0; border-bottom: 1px solid var(--line); }
+#person-add { margin-top: var(--s-3); }
+.sec-actions { margin-top: var(--s-4); }
+
+/* ---------- Drag and drop anywhere ---------- */
+#drop-overlay { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; background: color-mix(in srgb, var(--bg) 70%, transparent);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
+#drop-overlay > div { border: 2px dashed var(--accent); border-radius: var(--r-lg); padding: var(--s-7) var(--s-8); text-align: center; background: var(--accent-soft); display: flex; flex-direction: column; gap: 4px; }
+#drop-overlay b { font-family: var(--font-display); font-size: 28px; font-weight: 400; }
+#drop-overlay span { color: var(--text-2); }

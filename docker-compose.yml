@@ -1,0 +1,26 @@
+# Run on a home server: docker compose up -d --build
+services:
+  mymedical:
+    image: mymedical:latest
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"             # reachable from your LAN; the app asks for a password
+    environment:
+      MYMEDICAL_ADDR: 0.0.0.0:8080
+      # Fills in Settings → Assistant on a fresh install:
+      MYMEDICAL_OLLAMA_URL: http://host.docker.internal:11434
+      # Unlocks the records whenever the app starts, so it never waits for
+      # a sign-in after a restart. Convenient, but anyone who can read this
+      # file can read the records:
+      # MYMEDICAL_PASSWORD: change-me
+    extra_hosts:
+      # Lets the app reach Ollama on this same machine.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - mymedical-data:/data
+volumes:
+  mymedical-data:

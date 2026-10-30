@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>__BRAND__</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="fonts/urbanist.css">
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="app.css">
+<script src="theme-init.js"></script>
+</head>
+<body>
+
+<!-- Before sign-in: set up, sign in, or recover -->
+<div id="gate" hidden>
+  <div class="gate-card">
+    <div class="brand gate-brand"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="mark" cx="12" cy="12" r="11"/><path class="cross" d="M10.5 6h3v4.5H18v3h-4.5V18h-3v-4.5H6v-3h4.5z"/></svg><span>__BRAND__</span></div>
+
+    <form id="setup-form" hidden>
+      <h1 class="gate-title">Your family's medical records, on your own server.</h1>
+      <p class="muted">Everything is encrypted with your password. Nothing leaves this machine except questions to your own Ollama.</p>
+      <label>Your name <input name="name" autocomplete="given-name" required placeholder="The first profile"></label>
+      <label>Password <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <label>Password again <input name="confirm" type="password" autocomplete="new-password" minlength="8" required></label>
+      <button class="primary" type="submit">Set up</button>
+      <p class="err small" role="alert"></p>
+    </form>
+
+    <div id="recovery-show" hidden>
+      <h1 class="gate-title">Write down your recovery key</h1>
+      <p class="muted">If you forget your password, this is the only way back in. Without either one, the records can't be opened by anyone, including you. It won't be shown again.</p>
+      <div class="recovery-key mono" id="recovery-key"></div>
+      <div class="row"><button type="button" id="recovery-copy">Copy</button></div>
+      <label class="check"><input type="checkbox" id="recovery-ok"> I've written it down somewhere safe</label>
+      <button class="primary" id="recovery-done" disabled>Continue</button>
+    </div>
+
+    <form id="login-form" hidden>
+      <h1 class="gate-title">Welcome back</h1>
+      <p class="muted small" id="login-locked" hidden>The records are locked until someone signs in.</p>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required autofocus></label>
+      <button class="primary" type="submit">Sign in</button>
+      <p class="err small" role="alert"></p>
+      <button type="button" class="link small" id="to-recover">Forgot it? Use your recovery key</button>
+    </form>
+
+    <form id="recover-form" hidden>
+      <h1 class="gate-title">Use your recovery key</h1>
+      <label>Recovery key <input name="recovery" autocomplete="off" spellcheck="false" required placeholder="XXXX-XXXX-…"></label>
+      <label>New password <input name="password" type="password" autocomplete="new-password" minlength="8" required></label>
+      <button class="primary" type="submit">Set the new password</button>
+      <p class="err small" role="alert"></p>
+      <button type="button" class="link small" id="to-login">Back to sign in</button>
+    </form>
+  </div>
+</div>
+
+<div id="shell" hidden>
+<header id="top">
+  <a class="brand" href="#home" aria-label="__BRAND__, home"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="mark" cx="12" cy="12" r="11"/><path class="cross" d="M10.5 6h3v4.5H18v3h-4.5V18h-3v-4.5H6v-3h4.5z"/></svg><span>__BRAND__</span></a>
+  <button id="person-btn" class="person-btn" aria-haspopup="menu" aria-expanded="false"><span class="avatar" id="person-avatar"></span><span id="person-name"></span><svg class="chev" viewBox="0 0 20 20" aria-hidden="true"><path d="M6 8l4 4 4-4"/></svg></button>
+  <div id="person-menu" class="menu" role="menu" hidden></div>
+  <span class="spacer"></span>
+  <button id="theme-toggle" class="icon-btn" aria-label="Light or dark theme" title="Light or dark theme">
+    <svg class="sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M4.3 15.7l1.4-1.4M14.3 5.7l1.4-1.4"/></svg>
+    <svg class="moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16 12.5A6.5 6.5 0 0 1 7.5 4a6.5 6.5 0 1 0 8.5 8.5z"/></svg>
+  </button>
+  <a id="settings-link" class="icon-btn" href="#settings" aria-label="Settings" title="Settings"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6h9M15 6h2M3 14h3M9 14h8"/><circle cx="13.5" cy="6" r="1.8"/><circle cx="7.5" cy="14" r="1.8"/></svg></a>
+</header>
+<nav id="tabs" aria-label="Pages">
+  <button data-tab="home" aria-label="Home"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 9l7-6 7 6v8h-5v-5H8v5H3z"/></svg><span class="lbl">Home</span></button>
+  <button data-tab="files" aria-label="Files"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2h7l4 4v12H5zM12 2v4h4M8 10h5M8 13h5"/></svg><span class="lbl">Files</span><span id="new-count" class="pill" hidden></span></button>
+  <button data-tab="profile" aria-label="Profile"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="7" r="3.5"/><path d="M3.5 17.5c.8-3.4 3.4-5 6.5-5s5.7 1.6 6.5 5"/></svg><span class="lbl">Profile</span></button>
+</nav>
+
+<main>
+  <div id="toast" role="status" hidden></div>
+
+  <!-- Home: the chat, with the person's summary or an open file beside it -->
+  <section id="home" class="tab">
+    <div class="home">
+      <div class="chat" id="chat">
+        <div class="chat-head">
+          <span class="eyebrow">Assistant</span>
+          <span class="spacer"></span>
+          <select id="chat-pick" aria-label="Earlier chats"></select>
+          <button class="icon-btn" id="chat-new" title="New chat" aria-label="New chat"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg></button>
+        </div>
+        <div class="chat-log" id="chat-log" aria-live="polite"></div>
+        <form class="chat-box" id="chat-form">
+          <input type="file" id="attach-input" multiple hidden>
+          <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
+          <button type="button" class="icon-btn" id="attach-btn" title="Add files" aria-label="Add files"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M15 9.5l-5.6 5.6a3.5 3.5 0 0 1-5-5L10.2 4a2.3 2.3 0 0 1 3.3 3.3l-5.6 5.6a1.2 1.2 0 0 1-1.7-1.7L11.4 6"/></svg></button>
+          <button type="button" class="icon-btn camera-only" id="camera-btn" title="Take a photo" aria-label="Take a photo"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 6.5h3l1.5-2h5l1.5 2h3v9.5H3z"/><circle cx="10" cy="11" r="3"/></svg></button>
+          <textarea id="chat-input" rows="1" placeholder="Ask, or jot something down…" aria-label="Message"></textarea>
+          <button type="submit" class="icon-btn send" id="chat-send" aria-label="Send"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 16V4M5 9l5-5 5 5"/></svg></button>
+        </form>
+      </div>
+
+      <aside class="side" id="side">
+        <div id="summary"></div>
+        <div id="viewer" hidden></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Files -->
+  <section id="files" class="tab">
+    <h1 class="page-title" id="files-title">Files</h1>
+    <div class="drop" id="files-drop" tabindex="0" role="button">
+      <b>Drop files here</b>
+      <span class="small muted">PDFs, scans, photos, X-rays and DICOM, CSVs, portal downloads… anything. Or click to choose.</span>
+    </div>
+    <div class="row files-bar">
+      <input id="files-q" type="search" placeholder="Search files" aria-label="Search files">
+    </div>
+    <div class="scroll"><table id="files-table">
+      <thead><tr><th>File</th><th>Kind</th><th>Date</th><th>Added</th><th class="num">Size</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="muted small" id="files-empty" hidden>Nothing here yet.</p>
+  </section>
+
+  <!-- Profile: what a new doctor's office asks -->
+  <section id="profile" class="tab">
+    <form id="profile-form">
+      <div class="profile-head">
+        <h1 class="page-title" id="profile-title">Profile</h1>
+        <span class="spacer"></span>
+        <span class="small muted" id="profile-saved"></span>
+        <button class="primary" type="submit">Save</button>
+      </div>
+      <p class="muted small">What a new doctor's office would ask. Fill in what you know; the assistant will be able to help.</p>
+
+      <h2 class="section-h">Basics</h2>
+      <div class="grid">
+        <label>Name <input name="name" required></label>
+        <label>Born <input name="born" type="date"></label>
+        <label>Sex <select name="sex"><option value=""></option><option>Female</option><option>Male</option><option>Intersex</option><option>Prefer not to say</option></select></label>
+        <label>Height <input name="height" placeholder="5'10&quot; or 178 cm"></label>
+        <label>Weight <input name="weight" placeholder="182 lb or 82 kg"><span class="small muted" id="weight-asof"></span></label>
+        <label>Blood type <select name="blood_type"><option value=""></option><option>A+</option><option>A−</option><option>B+</option><option>B−</option><option>AB+</option><option>AB−</option><option>O+</option><option>O−</option><option>Don't know</option></select></label>
+      </div>
+
+      <div id="profile-lists"></div>
+
+      <h2 class="section-h">More</h2>
+      <div class="grid">
+        <label class="wide">Lifestyle <textarea name="lifestyle" rows="2" placeholder="Smoking, alcohol, exercise, diet, sleep"></textarea></label>
+        <label>Emergency contact <textarea name="emergency_contact" rows="2"></textarea></label>
+        <label>Insurance <textarea name="insurance" rows="2"></textarea></label>
+        <label class="wide">Notes <textarea name="notes" rows="3"></textarea></label>
+      </div>
+    </form>
+  </section>
+
+  <!-- Settings -->
+  <section id="settings" class="tab">
+    <h1 class="page-title">Settings</h1>
+
+    <h2 class="section-h">Assistant</h2>
+    <p class="small muted">A model on your own <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> server reads your files and answers questions. Nothing is sent anywhere else.</p>
+    <form id="ai-form" class="grid">
+      <label class="wide">Ollama address
+        <span class="row"><input name="ollama_url" placeholder="http://192.168.1.20:11434" class="grow"><button type="button" id="ai-check">Check</button></span>
+        <span class="small muted" id="ai-status"></span>
+      </label>
+      <label>Chat model <select name="chat_model"></select><span class="small muted">Needs tool use. Models without it are greyed out.</span></label>
+      <label>Model for images and scans <select name="vision_model"></select><span class="small muted">Needs vision. Can be the same model.</span></label>
+      <label>Memory for each question <select name="num_ctx">
+        <option value="8192">8k tokens</option><option value="16384">16k tokens</option><option value="32768">32k tokens</option><option value="65536">64k tokens</option>
+      </select></label>
+      <div class="wide row"><button class="primary" type="submit">Save</button></div>
+    </form>
+
+    <h2 class="section-h">People</h2>
+    <div id="people-list"></div>
+    <form id="person-add" class="row">
+      <input name="name" placeholder="Name" aria-label="New person's name">
+      <button type="submit">Add a person</button>
+    </form>
+
+    <h2 class="section-h">Security</h2>
+    <form id="password-form" class="grid">
+      <label>Current password <input name="old" type="password" autocomplete="current-password" required></label>
+      <label>New password <input name="new" type="password" autocomplete="new-password" minlength="8" required></label>
+      <div class="wide row"><button type="submit">Change password</button></div>
+    </form>
+    <div class="row sec-actions">
+      <button id="lock-btn" title="Signs everyone out and forgets the key until the next sign-in">Lock now</button>
+      <button id="logout-btn">Sign out</button>
+    </div>
+
+    <h2 class="section-h">About</h2>
+    <p class="small muted">__BRAND__ __VERSION__. A tool for organizing your own records. It is not a doctor and doesn't give medical advice; the assistant can be wrong. Talk to a clinician about anything that matters, and call emergency services in an emergency.</p>
+  </section>
+</main>
+
+<!-- Shown while files are dragged over the window -->
+<div id="drop-overlay" hidden><div><b id="drop-who"></b><span>Drop to add</span></div></div>
+</div>
+
+<script src="md.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

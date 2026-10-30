@@ -1,0 +1,11 @@
+/data/
+*.db
+*.db-journal
+/mymedical
+# Never commit real medical records
+private/
+*.real.*
+# This machine's dev server
+.claude/launch.json
+# Local working folders: any folder starting with _
+_*/
