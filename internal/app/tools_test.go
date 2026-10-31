@@ -304,3 +304,33 @@ func TestQuestionAboutASaveIsLeftAlone(t *testing.T) {
 		t.Fatalf("%d calls", len(o.seen))
 	}
 }
+
+// A model that stops without a word is asked for its answer.
+func TestEmptyAnswerIsAskedAgain(t *testing.T) {
+	o := &scriptedOllama{steps: []string{
+		`{"tool_calls":[{"function":{"name":"list_measurements","arguments":{}}}]}`,
+		`{"content":""}`,
+		`{"content":"Nothing measured yet."}`,
+	}}
+	srv, c := signedIn(t, o.server(t).URL)
+	var text string
+	for _, ev := range chat(t, c, srv.URL+"/api/people/1/chat", "what's on record?", 0) {
+		text += ev.T
+	}
+	if text != "Nothing measured yet." || len(o.seen) != 3 || !strings.Contains(o.seen[2], "answered yet") {
+		t.Fatalf("%d calls: %q", len(o.seen), text)
+	}
+}
+
+// If it never answers, the chat says so rather than staying blank.
+func TestEmptyAnswerTwiceSaysSo(t *testing.T) {
+	o := &scriptedOllama{steps: []string{`{"content":""}`, `{"content":""}`}}
+	srv, c := signedIn(t, o.server(t).URL)
+	var text string
+	for _, ev := range chat(t, c, srv.URL+"/api/people/1/chat", "hello", 0) {
+		text += ev.T
+	}
+	if text != "_No answer came back. Please ask again._" || len(o.seen) != 2 {
+		t.Fatalf("%d calls: %q", len(o.seen), text)
+	}
+}

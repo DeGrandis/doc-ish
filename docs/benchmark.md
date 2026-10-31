@@ -140,4 +140,18 @@ yet a full benchmark run):
 | `ornith:9b` | 20 of 80 | failed |
 | `bonsai-2:9b` | 11 of 80 (copies only the flagged values) | 66 |
 
+`qwen3.5:9b` since then, each change on top of the last, 3 runs with
+`-ctx 32768` (2026-10-31):
+
+| Change | Score | Median answer |
+|---|---:|---:|
+| Fits the context, tables checked against the page | 93.3% | |
+| Reasoning on | 96.7% | 394 characters |
+| Direct prompt | 95.3% | 143 characters, 6 of 75 empty |
+| An empty answer is asked for again | 99.3% | 167 characters, none empty |
+
+These are 25 items that the changes were tuned against, so they show the
+changes helped, not how the app does on real records. `lfm2.5:8b` scored
+61.3% in a run before these changes, when `qwen3.5:9b` scored 88.7%.
+
 The harness itself is tested against a fake model (`internal/bench`).
