@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -324,15 +325,29 @@ func (e *toolEnv) searchFiles(q, kind, from, to string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var lines []string
-	for _, d := range docs {
-		dd := docDate(d)
-		if (kind != "" && d.Kind != kind) || (from != "" && dd < from) || (to != "" && dd > to) {
-			continue
+	list := func(docs []store.Document) []string {
+		var lines []string
+		for _, d := range docs {
+			dd := docDate(d)
+			if (kind != "" && d.Kind != kind) || (from != "" && dd < from) || (to != "" && dd > to) {
+				continue
+			}
+			lines = append(lines, docLine(d))
+			if len(lines) == 25 {
+				break
+			}
 		}
-		lines = append(lines, docLine(d))
-		if len(lines) == 25 {
-			break
+		return lines
+	}
+	lines := list(docs)
+	if words := strings.Fields(q); len(lines) == 0 && len(words) > 1 {
+		// A model asks in phrases ("knee MRI report 2019"): rather than
+		// leave it guessing at other words, show what comes closest.
+		if docs, err = e.closestFiles(words); err != nil {
+			return "", err
+		}
+		if lines = list(docs); len(lines) > 0 {
+			lines = append([]string{"No file has all of those words. The closest:"}, lines...)
 		}
 	}
 	label := "Searched files"
@@ -344,6 +359,25 @@ func (e *toolEnv) searchFiles(q, kind, from, to string) (string, error) {
 		return "No files match.", nil
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// closestFiles lists the files with any of the words, most words first.
+func (e *toolEnv) closestFiles(words []string) ([]store.Document, error) {
+	hits := map[int64]int{}
+	var found []store.Document
+	for _, w := range words {
+		docs, err := e.st.Documents(e.pid, w, 300)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range docs {
+			if hits[d.ID]++; hits[d.ID] == 1 {
+				found = append(found, d)
+			}
+		}
+	}
+	sort.SliceStable(found, func(i, j int) bool { return hits[found[i].ID] > hits[found[j].ID] })
+	return found, nil
 }
 
 func (e *toolEnv) ownDoc(id int64) (store.Document, error) {
@@ -366,16 +400,21 @@ func (e *toolEnv) readFile(id int64) (string, error) {
 	if d.Status == store.StatusReview && d.ReviewReason != "" {
 		b.WriteString("Waiting for the user to check it because: " + strings.ReplaceAll(d.ReviewReason, "\n", "; ") + "\n")
 	}
+	room := e.toolRoom()
 	if secs, _ := e.st.DocumentSections(id); len(secs) > 0 {
 		b.WriteString("Records inside it:\n")
+		var lines []string
 		for _, s := range secs {
-			b.WriteString("- " + sectionLine(s) + "\n")
+			lines = append(lines, "- "+sectionLine(s))
+		}
+		if n := within(&b, lines, room/4); n > 0 {
+			fmt.Fprintf(&b, "- …and %d more\n", n)
 		}
 	}
 	if vals, _ := e.st.DocumentObservations(id); len(vals) > 0 {
 		b.WriteString("Values:\n")
-		for _, o := range vals {
-			b.WriteString("- " + obsLine(o) + "\n")
+		if n := within(&b, fileValues(vals), room/3); n > 0 {
+			fmt.Fprintf(&b, "- …and %d more; get_values finds any by name\n", n)
 		}
 	}
 	var res ingest.Result
@@ -386,13 +425,34 @@ func (e *toolEnv) readFile(id int64) (string, error) {
 		}
 	}
 	if t := strings.TrimSpace(d.Text); t != "" {
-		if len(t) > fileTextLimit {
-			t = strings.ToValidUTF8(t[:fileTextLimit], "") + "\n[…the rest is cut]"
+		short, cut := ollama.Clip(strings.ToValidUTF8(t[:min(len(t), fileTextLimit)], ""), room/3)
+		if cut || len(t) > fileTextLimit {
+			short += "\n[…the rest is cut]"
 		}
-		b.WriteString("Text:\n" + t + "\n")
+		b.WriteString("Text:\n" + short + "\n")
 	}
 	e.note("read_file", "Read: "+titleOf(d), d.ID)
 	return b.String(), nil
+}
+
+// toolRoom is the most one tool's answer can take of the model's context.
+func (e *toolEnv) toolRoom() int { return contextRoom(e.set.NumCtx) / 3 }
+
+// fileValues lists a file's values for the assistant, what's out of range
+// first and then the newest, so those survive when a long file is cut.
+func fileValues(vals []store.Observation) []string {
+	vals = slices.Clone(vals)
+	sort.SliceStable(vals, func(i, j int) bool {
+		if a, b := vals[i].OutOfRange(), vals[j].OutOfRange(); a != b {
+			return a
+		}
+		return vals[i].Observed > vals[j].Observed
+	})
+	lines := make([]string, len(vals))
+	for i, o := range vals {
+		lines[i] = "- " + obsLine(o)
+	}
+	return lines
 }
 
 // sectionLine is one record inside a long file, for the assistant.
@@ -466,6 +526,13 @@ func (e *toolEnv) listMeasurements() (string, error) {
 	var b strings.Builder
 	for _, m := range ms {
 		fmt.Fprintf(&b, "- %s: %d reading%s from %s to %s; latest %s\n", m.Name, m.Count, plural(m.Count), m.First, m.Latest.Observed, obsLine(m.Latest))
+	}
+	if ollama.Tokens(b.String()) > e.toolRoom() {
+		// Too many to describe: the names are what get_values needs.
+		b.Reset()
+		for _, m := range ms {
+			fmt.Fprintf(&b, "- %s: %d, latest %s\n", m.Name, m.Count, m.Latest.Observed[:min(len(m.Latest.Observed), 10)])
+		}
 	}
 	return b.String(), nil
 }
@@ -560,14 +627,20 @@ func (e *toolEnv) getValues(name, from, to string) (string, error) {
 		}
 		b.WriteString(":\n")
 		b.WriteString(valueStats(obs))
-		rows := obs
-		if len(rows) > maxValueRows {
-			fmt.Fprintf(&b, "The latest %d:\n", maxValueRows)
-			rows = rows[len(rows)-maxValueRows:]
+		rows := obs[max(len(obs)-maxValueRows, 0):]
+		var lines []string
+		for left, i := e.toolRoom()/(2*len(names)), len(rows)-1; i >= 0; i-- {
+			line := "- " + obsLine(rows[i])
+			if left -= ollama.Tokens(line); left < 0 {
+				break
+			}
+			lines = append(lines, line)
 		}
-		for _, o := range rows {
-			b.WriteString("- " + obsLine(o) + "\n")
+		slices.Reverse(lines)
+		if len(lines) < len(obs) {
+			fmt.Fprintf(&b, "The latest %d:\n", len(lines))
 		}
+		b.WriteString(strings.Join(lines, "\n") + "\n")
 	}
 	return b.String(), nil
 }
@@ -584,7 +657,8 @@ func or(s, def string) string {
 }
 
 // valueStats sums readings up so the model can quote an average instead
-// of working one out: overall, and month by month when they span months.
+// of working one out: overall, and month by month when they span months,
+// or year by year when they span more than two years.
 func valueStats(obs []store.Observation) string {
 	type agg struct {
 		sum, lo, hi float64
@@ -599,13 +673,21 @@ func valueStats(obs []store.Observation) string {
 		g.lo, g.hi = min(g.lo, v), max(g.hi, v)
 	}
 	var all agg
+	span := map[string]bool{}
+	for _, o := range obs {
+		span[o.Observed[:min(len(o.Observed), 7)]] = true
+	}
+	by, keyLen := "month", 7
+	if len(span) > 24 {
+		by, keyLen = "year", 4
+	}
 	months := map[string]*agg{}
 	var order []string
 	for _, o := range obs {
 		if o.Value == nil {
 			continue
 		}
-		k := o.Observed[:min(len(o.Observed), 7)]
+		k := o.Observed[:min(len(o.Observed), keyLen)]
 		if months[k] == nil {
 			months[k] = &agg{}
 			order = append(order, k)
@@ -619,7 +701,7 @@ func valueStats(obs []store.Observation) string {
 	r := func(f float64) string { return strconv.FormatFloat(math.Round(f*10)/10, 'f', -1, 64) }
 	s := fmt.Sprintf("Average %s, lowest %s, highest %s.\n", r(all.sum/float64(all.n)), r(all.lo), r(all.hi))
 	if len(order) > 1 {
-		s += "By month:\n"
+		s += "By " + by + ":\n"
 		for _, k := range order {
 			g := months[k]
 			s += fmt.Sprintf("- %s: average %s, lowest %s, highest %s (%d)\n", k, r(g.sum/float64(g.n)), r(g.lo), r(g.hi), g.n)

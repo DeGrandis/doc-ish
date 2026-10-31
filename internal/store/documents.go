@@ -91,17 +91,19 @@ func (s *Store) Document(id int64) (Document, error) {
 }
 
 // Documents lists a profile's files, newest first. q filters on the
-// filename, title, kind, summary and the text read from it.
+// filename, title, kind, date, summary, the text read from it and the
+// records inside it; every word of q has to be there, in any order.
 func (s *Store) Documents(personID int64, q string, limit int) ([]Document, error) {
 	if limit <= 0 {
 		limit = 500
 	}
 	where := `person_id = ?`
 	args := []any{personID}
-	if q = strings.TrimSpace(q); q != "" {
-		where += ` AND (filename LIKE ? OR title LIKE ? OR kind LIKE ? OR summary LIKE ? OR provider LIKE ? OR text LIKE ?)`
-		like := "%" + q + "%"
-		args = append(args, like, like, like, like, like, like)
+	for _, word := range strings.Fields(q) {
+		where += ` AND (filename LIKE ? OR title LIKE ? OR kind LIKE ? OR summary LIKE ? OR provider LIKE ? OR text LIKE ? OR doc_date LIKE ?
+			OR id IN (SELECT document_id FROM sections WHERE title LIKE ? OR date LIKE ? OR summary LIKE ?))`
+		like := "%" + word + "%"
+		args = append(args, like, like, like, like, like, like, like, like, like, like)
 	}
 	args = append(args, limit)
 	return s.docs(`SELECT `+docCols+` FROM documents WHERE `+where+` ORDER BY added DESC, id DESC LIMIT ?`, args...)

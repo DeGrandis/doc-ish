@@ -291,7 +291,7 @@ func (e *toolEnv) describeImage(id int64) (string, error) {
 	}
 	study, err := e.st.StudyOf(d.ID)
 	if err != nil {
-		return "", errors.New("that file isn't an imaging study")
+		return "", errors.New("that file isn't an imaging study; read_file has what it says")
 	}
 	model := e.set.visionModel()
 	if model == "" {

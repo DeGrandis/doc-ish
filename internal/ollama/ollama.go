@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type Client struct {
@@ -170,13 +171,52 @@ type ChatRequest struct {
 	Messages   []Message
 	NumCtx     int
 	Tools      []Tool
-	NumPredict int  // the longest answer in tokens; 0 is maxAnswerTokens
+	NumPredict int  // the longest answer in tokens; 0 is MaxAnswerTokens
 	Exact      bool // temperature 0: the same answer every time (OCR)
+	Keep       int  // tokens at the start that survive if the prompt is ever too long
 }
 
-// maxAnswerTokens is the longest chat answer: a long, detailed answer is
+// MaxAnswerTokens is the longest chat answer: a long, detailed answer is
 // well under it.
-const maxAnswerTokens = 2000
+const MaxAnswerTokens = 2000
+
+// Tokens estimates how much of a model's context a text takes. Medical
+// records take far more than their length suggests: a digit or a mark is
+// a token each, so a lab table runs about 1.4 characters to a token
+// against 5 in prose.
+func Tokens(s string) int {
+	tenths := 0
+	for _, r := range s {
+		tenths += tokenTenths(r)
+	}
+	return tenths/10 + 1
+}
+
+func tokenTenths(r rune) int {
+	switch {
+	case unicode.IsLetter(r):
+		return 2
+	case unicode.IsSpace(r):
+		return 4
+	}
+	return 10
+}
+
+// Clip cuts text to about limit tokens, at the end of a line when there's
+// one nearby, and reports whether it cut anything.
+func Clip(s string, limit int) (string, bool) {
+	tenths := 0
+	for i, r := range s {
+		if tenths += tokenTenths(r); tenths/10 >= limit {
+			cut := s[:i]
+			if nl := strings.LastIndex(cut, "\n"); nl > len(cut)/2 {
+				cut = cut[:nl]
+			}
+			return cut, true
+		}
+	}
+	return s, false
+}
 
 // ErrNoTools means the model can't use tools.
 var ErrNoTools = errors.New("this model can't use tools")
@@ -186,7 +226,7 @@ var ErrNoTools = errors.New("this model can't use tools")
 func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (string, []ToolCall, error) {
 	predict := r.NumPredict
 	if predict <= 0 {
-		predict = maxAnswerTokens
+		predict = MaxAnswerTokens
 	}
 	temp := 0.2
 	if r.Exact {
@@ -200,6 +240,11 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		// num_predict caps an answer, so a model that starts repeating
 		// itself stops in seconds instead of filling its whole context.
 		"options": map[string]any{"temperature": temp, "num_ctx": r.NumCtx, "num_predict": predict},
+	}
+	if r.Keep > 0 {
+		// Past num_ctx Ollama drops the start of the prompt but for
+		// num_keep tokens: without this, the rules and the tools.
+		body["options"].(map[string]any)["num_keep"] = r.Keep
 	}
 	if len(r.Tools) > 0 {
 		body["tools"] = r.Tools

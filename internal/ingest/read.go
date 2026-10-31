@@ -195,13 +195,8 @@ func Read(ctx context.Context, c ollama.Chatter, req Request) (Result, error) {
 		return Result{}, errors.New("pick a chat model in Settings")
 	}
 
-	// Leave room for the instructions and the answer; about three
-	// characters to a token.
-	budget := max((req.NumCtx-4500)*3, 4000)
-	cut := false
-	if len(text) > budget {
-		text, cut = strings.ToValidUTF8(text[:budget], ""), true
-	}
+	// Leave room for the instructions and the answer.
+	text, cut := ollama.Clip(text, max(req.NumCtx-4500, 1500))
 
 	var user strings.Builder
 	fmt.Fprintf(&user, "File name: %s\nWhose records: %s\nToday: %s\n", req.Filename, req.PersonName, req.Today.Format("2006-01-02"))

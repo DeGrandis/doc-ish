@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,32 @@ import (
 
 // historyLimit is how many earlier messages go with each question.
 const historyLimit = 12
+
+// contextRoom is how many tokens of the model's context one question has
+// to fill: what's left after the tools, the longest answer and a margin
+// for the estimate being off. Past the context Ollama silently drops the
+// start of the prompt, which is the rules and the tools, so nothing sent
+// may be allowed to grow with the records.
+func contextRoom(numCtx int) int {
+	return max(numCtx*9/10-ollama.MaxAnswerTokens-toolTokens(), 1500)
+}
+
+func toolTokens() int {
+	b, _ := json.Marshal(assistantTools)
+	return ollama.Tokens(string(b))
+}
+
+// within writes lines until the tokens run out and returns how many it
+// left out.
+func within(b *strings.Builder, lines []string, tokens int) int {
+	for i, l := range lines {
+		if tokens -= ollama.Tokens(l); tokens < 0 {
+			return len(lines) - i
+		}
+		b.WriteString(l + "\n")
+	}
+	return 0
+}
 
 func (a *App) handleChats(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r)
@@ -135,7 +162,8 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 			failed = true
 			return
 		}
-		system = buildSystemPrompt(st, p) + viewingSection(st, pid, req.Viewing)
+		room := contextRoom(set.NumCtx)
+		system = buildSystemPrompt(st, p, room) + viewingSection(st, pid, req.Viewing, room)
 	})
 	if failed {
 		return
@@ -149,6 +177,12 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 	msgs := []ollama.Message{{Role: "system", Content: system}}
 	if len(history) > historyLimit {
 		history = history[len(history)-historyLimit:]
+	}
+	for left, i := contextRoom(set.NumCtx)/6, len(history)-1; i >= 0; i-- {
+		if left -= ollama.Tokens(history[i].Content); left < 0 {
+			history = history[i+1:]
+			break
+		}
 	}
 	for _, m := range history {
 		msgs = append(msgs, ollama.Message{Role: m.Role, Content: m.Content})
@@ -199,11 +233,14 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 	tools := assistantTools
 	var reply strings.Builder
 	done := map[string]bool{} // tool calls already run, by name and arguments
+	room := contextRoom(set.NumCtx)
+	keep := min(ollama.Tokens(msgs[0].Content)+toolTokens(), set.NumCtx/2)
 	for round := 0; ; round++ {
 		if round == maxRounds {
 			tools = nil // make it answer with what it has
 		}
-		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.chatModel(), Messages: msgs, NumCtx: set.NumCtx, Tools: tools},
+		fit(msgs, room)
+		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.chatModel(), Messages: msgs, NumCtx: set.NumCtx, Tools: tools, Keep: keep},
 			func(t string) {
 				reply.WriteString(t)
 				send(map[string]string{"t": t})
@@ -244,14 +281,34 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 				result = env.run(c)
 			}
 			a.mu.RUnlock()
+			if short, cut := ollama.Clip(result, room/3); cut {
+				result = short + "\n[…cut to fit. Ask for less: one name, or a date range]"
+			}
 			msgs = append(msgs, ollama.Message{Role: "tool", ToolName: c.Function.Name, Content: result})
+		}
+	}
+}
+
+// fit makes room for another round by dropping the oldest tool results.
+func fit(msgs []ollama.Message, room int) {
+	total := 0
+	for _, m := range msgs {
+		total += ollama.Tokens(m.Content)
+	}
+	for i := range msgs[:len(msgs)-1] {
+		if total <= room {
+			return
+		}
+		if msgs[i].Role == "tool" {
+			total -= ollama.Tokens(msgs[i].Content)
+			msgs[i].Content = "[Dropped to make room. Answer with what you have.]"
 		}
 	}
 }
 
 // viewingSection tells the model about the file open beside the chat, so
 // "this" and "here" mean it.
-func viewingSection(st *store.Store, pid, docID int64) string {
+func viewingSection(st *store.Store, pid, docID int64, room int) string {
 	if docID == 0 {
 		return ""
 	}
@@ -263,32 +320,33 @@ func viewingSection(st *store.Store, pid, docID int64) string {
 	b.WriteString("\n## What the user is looking at\nThis file is open beside the chat; \"this\", \"it\" and \"here\" mean it unless they say otherwise.\n")
 	b.WriteString(docLine(d) + "\n")
 	if vals, _ := st.DocumentObservations(docID); len(vals) > 0 {
-		for _, o := range vals {
-			b.WriteString("- " + obsLine(o) + "\n")
+		if n := within(&b, fileValues(vals), room/12); n > 0 {
+			fmt.Fprintf(&b, "- …and %d more values; get_values finds any by name\n", n)
 		}
 	}
 	if t := strings.TrimSpace(d.Text); t != "" {
-		if len(t) > 3000 {
-			t = strings.ToValidUTF8(t[:3000], "") + "\n[…more with read_file]"
+		short, cut := ollama.Clip(strings.ToValidUTF8(t[:min(len(t), 3000)], ""), room/12)
+		if cut || len(t) > 3000 {
+			short += "\n[…more with read_file]"
 		}
-		b.WriteString("Its text:\n" + t + "\n")
+		b.WriteString("Its text:\n" + short + "\n")
 	}
 	return b.String()
 }
 
 // buildSystemPrompt is the rules, then the profile, files and latest
 // measurements of the person being viewed.
-func buildSystemPrompt(st *store.Store, p store.Person) string {
+func buildSystemPrompt(st *store.Store, p store.Person, room int) string {
 	var b strings.Builder
 	today := time.Now().Format("2006-01-02")
 	fmt.Fprintf(&b, "You are the assistant inside %s, a private app on the family's own server that keeps their medical records in one place. You are looking at %s's records. Today is %s.\n\n", brand.Name, p.Name, today)
 	b.WriteString(`Rules:
-- Answer from the records below. Never invent results, dates, medications or documents. If something isn't in the records, say so.
+- Answer from the records. Never invent results, dates, medications or documents. If something isn't in the records, say so.
 - You may explain what results and medical terms mean, point out values outside their reference range, say what you notice, what could explain it and what might be worth asking a doctor about. You are not their doctor and this is not a diagnosis. If something could be urgent or serious, say so plainly and suggest contacting a clinician.
 - Be concise and concrete: short paragraphs or bullet lists, values with units, dates as YYYY-MM-DD.
-- Below is the profile, the files with a short summary of each, and the latest value of every measurement. For anything more, use your tools and answer from what they return: read_file for what a file says, get_values for every reading of something over time, search_files to find files.
+- Below is the profile, the newest files with a short summary of each, and the latest measurements. That's only part of the records: if something isn't below, look for it with your tools before saying it isn't there, and answer from what they return: read_file for what a file says, get_values for every reading of something over time, search_files to find files.
 - Before explaining what a condition, symptom, test or term means, call explain (MedlinePlus) and base the explanation on what it returns, mentioning MedlinePlus. For a medication, call lookup_drug. When asked whether medications go together, or about side effects of a combination, call drug_interactions with every medication involved, and quote what the FDA labels say. If the reference has nothing, say so instead of filling in from memory.
-- For an imaging study (X-ray, CT, MRI…), describe_image has the vision model look at it, with its report when one is linked. Present what it says as what an AI notices, not a radiologist's reading; where there's a report, the report is what counts.
+- For an imaging study (X-ray, CT, MRI…), describe_image has the vision model look at it, with its report when one is linked. Present what it says as what an AI notices, not a radiologist's reading; where there's a report, the report is what counts. For what a report or any other file says, use read_file, not describe_image.
 - When the user asks how something is trending, or for a graph or chart, call chart, then describe the trend in a sentence or two.
 - When the user asks to see, pull up or open a file, call open_file.
 - When the user tells you a measurement ("weight 182 today", "BP 128/82 this morning"), save it with note_value right away, then confirm in one short line. When they tell you about an allergy, condition, medication, surgery, family history, vaccination or doctor, or their birth date, sex, height or blood type, save it with update_profile. Every change shows to them with an Undo button, so don't ask "shall I save it?" first. When they give several things at once (two family members, three medications), call the tool once for each.
@@ -366,10 +424,12 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 			secs[s.DocumentID] = append(secs[s.DocumentID], s)
 		}
 	}
-	if docs, _ := st.Documents(p.ID, "", 40); len(docs) > 0 {
+	if docs, _ := st.Documents(p.ID, "", 200); len(docs) > 0 {
 		b.WriteString("\n## Files (newest first; the [doc:N] id is for your tools)\n")
+		var lines []string
 		for _, d := range docs {
-			b.WriteString("- " + docLine(d) + "\n")
+			var l strings.Builder
+			l.WriteString("- " + docLine(d))
 			// A records release lists the visits and reports in it, so
 			// "my visit in September" finds it.
 			n := 0
@@ -378,11 +438,15 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 					continue
 				}
 				if n++; n > 15 {
-					b.WriteString("  - …and more; read_file lists them all\n")
+					l.WriteString("\n  - …and more; read_file lists them all")
 					break
 				}
-				fmt.Fprintf(&b, "  - %s %s: %s (pages %d–%d)\n", s.Date, s.Kind, s.Title, s.FirstPage, s.LastPage)
+				fmt.Fprintf(&l, "\n  - %s %s: %s (pages %d–%d)", s.Date, s.Kind, s.Title, s.FirstPage, s.LastPage)
 			}
+			lines = append(lines, l.String())
+		}
+		if within(&b, lines, room/8) > 0 {
+			b.WriteString("- …and older files; search_files finds them\n")
 		}
 	}
 
@@ -395,16 +459,17 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 		}
 		if len(open) > 0 {
 			b.WriteString("\n## Coming up (follow-ups from files or the user; [f:N] is for set_follow_up)\n")
-			b.WriteString(strings.Join(open, "\n") + "\n")
+			if n := within(&b, open, room/20); n > 0 {
+				fmt.Fprintf(&b, "- …and %d more\n", n)
+			}
 		}
 	}
 
 	if ms, _ := st.Measurements(p.ID); len(ms) > 0 {
 		b.WriteString("\n## Latest measurements\n")
-		for i, m := range ms {
-			if i >= 40 {
-				break
-			}
+		sort.SliceStable(ms, func(i, j int) bool { return ms[i].Latest.Observed > ms[j].Latest.Observed })
+		var lines []string
+		for _, m := range ms {
 			o := m.Latest
 			v := o.ValueText
 			if o.Value != nil {
@@ -434,7 +499,10 @@ func buildSystemPrompt(st *store.Store, p store.Person) string {
 			if m.Count > 1 {
 				s += fmt.Sprintf("; %d readings since %s", m.Count, m.First[:min(len(m.First), 10)])
 			}
-			b.WriteString(strings.TrimSpace(s) + "\n")
+			lines = append(lines, strings.TrimSpace(s))
+		}
+		if n := within(&b, lines, room/10); n > 0 {
+			fmt.Fprintf(&b, "- …and %d more; list_measurements has them all\n", n)
 		}
 	}
 	return b.String()

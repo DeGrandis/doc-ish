@@ -44,7 +44,7 @@ func acceptsRemote(typed string) bool {
 }
 
 const (
-	defaultNumCtx    = 16384
+	defaultNumCtx    = 32768
 	defaultRemoteURL = "https://openrouter.ai/api/v1"
 )
 
