@@ -1,14 +1,128 @@
-# Doc-ish
+<p align="center">
+  <img src="docs/images/hero.jpg" alt="Doc-ish: your family's records, explained on your own server. A phone showing the assistant charting a weight trend.">
+</p>
 
-Every medical file your family has, in one place on your
-own server, and a local AI that reads them and answers questions. A sibling
-of [Proof of Basis](https://proofofbasis.degrand.is).
+<p align="center">
+  Drop in every lab report, visit note, scan, hospital CD and phone export
+  your family has. It reads them, files every result under the right person
+  and date, and answers your questions with AI that runs on your own
+  hardware.
+</p>
 
-> **Not medical advice.** This is a tool for organizing your own records.
-> It is not a doctor, and the assistant can be wrong. Talk to a clinician
-> about anything that matters; in an emergency, call emergency services.
+<p align="center">
+  <a href="https://github.com/DeGrandis/doc-ish/actions/workflows/images.yml"><img src="https://github.com/DeGrandis/doc-ish/actions/workflows/images.yml/badge.svg" alt="Build"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/DeGrandis/doc-ish?color=ff7a59" alt="License: MIT"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/DeGrandis/doc-ish" alt="Go version"></a>
+  <a href="https://github.com/DeGrandis/doc-ish/pkgs/container/doc-ish"><img src="https://img.shields.io/badge/docker-amd64%20%7C%20arm64-2496ED?logo=docker&logoColor=white" alt="Docker: amd64 and arm64"></a>
+  <a href="#ask-it-anything"><img src="https://img.shields.io/badge/AI-local%20with%20Ollama-000000?logo=ollama&logoColor=white" alt="Local AI with Ollama"></a>
+</p>
 
-## What works today
+<p align="center">
+  <a href="#getting-started">Install</a> ·
+  <a href="#screenshots">Screenshots</a> ·
+  <a href="#ask-it-anything">The assistant</a> ·
+  <a href="docs/benchmark.md">Model benchmark</a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/images/home-light.png">
+    <img src="docs/images/home-dark.png" alt="Home: the assistant charting a weight trend beside the profile, what's coming up and recent files">
+  </picture>
+</p>
+
+> **Not medical advice.** Doc-ish is a tool for organizing your own
+> records. It is not a doctor (it's only doc-ish), and the assistant can be
+> wrong. Talk to a clinician about anything that matters; in an emergency,
+> call emergency services.
+
+---
+
+## How it works
+
+1. **Drop in everything.** PDFs, scans and phone photos of paperwork, CSV
+   exports, a hospital CD of X-rays or CTs, an Apple Health or Google Fit
+   export. Drag them onto the window, or use the camera on a phone.
+2. **It reads every file.** A model on your own Ollama works out what each
+   one is, whose it is and when, and copies out every result with its unit,
+   range and flag. A 100-page records release is split into the visits and
+   lab reports inside it.
+3. **Anything unsure waits in Review.** A name that isn't the profile's, a
+   date that can't be right, a table it couldn't fully read: nothing from
+   those files is filed until you say so.
+4. **See the whole history.** A timeline of every visit, lab, scan,
+   medication and vaccine, and what's coming up: the "recheck in six months"
+   from a note, due on the right day, closed when the recheck arrives.
+5. **Ask it anything.** "Is anything out of range?", "Chart my blood
+   pressure", "What did this CT show?" Answers come from your records, and
+   nothing leaves your network.
+
+## Why Doc-ish
+
+- **Private by design.** Everything is encrypted at rest with your
+  password, the AI runs on your own hardware, and the app never phones
+  home. A hosted model is possible, but only if you turn it on and type out
+  that you accept the risk.
+- **The whole household.** A profile for each person, with the intake form
+  a doctor's office asks for, and files that land on the wrong person
+  caught before they're filed.
+- **Built for messy files.** Scans are read by Tesseract with their table
+  columns kept in place, long releases are read a few pages at a time with
+  tables carried across pages, and a benchmark on invented records measures
+  which local models get every value right.
+- **It looks things up.** The assistant answers from MedlinePlus, RxNorm and
+  FDA drug labels kept on your server, instead of what a small model
+  remembers.
+
+## Screenshots
+
+These come from a fresh install filled with invented records (the
+benchmark's household: Jordan and Sam Example). None of it is anyone's real
+data.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/file.png" alt="A 24-page records release open beside the chat, with the records inside it by date and page"><br><b>Records inside a file.</b> A 24-page release split into its visits and lab reports, beside the chat.</td>
+    <td width="50%"><img src="docs/images/timeline.png" alt="Timeline: what's coming up, then every file, medication and vaccine by date"><br><b>Timeline.</b> What's coming up, then everything by date, with out-of-range values.</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/review.png" alt="Review: a lab report with Sam's name dropped on Jordan's profile"><br><b>Review.</b> Sam's lab report, dropped on Jordan's profile, caught before it's filed.</td>
+    <td width="50%"><img src="docs/images/home-light.png" alt="Home in light mode"><br><b>Light or dark.</b> It follows your system, or pick one.</td>
+  </tr>
+</table>
+
+On a phone:
+
+<p align="center">
+  <img src="docs/images/mobile-chat.png" width="200" alt="The assistant on a phone, with a chart">
+  <img src="docs/images/mobile-file.png" width="200" alt="A file on a phone, with the records inside it">
+  <img src="docs/images/mobile-timeline.png" width="200" alt="The timeline on a phone">
+  <img src="docs/images/mobile-undo.png" width="200" alt="A blood pressure reading saved from chat, with Undo">
+</p>
+
+---
+
+## Ask it anything
+
+The assistant answers from your own records, with any Ollama model that
+supports tools. It sees the profile, each file's summary and the latest
+value of everything measured, and looks up the rest with tools: it can
+
+- search your files, read one in full, and pull every reading of anything
+  over time,
+- draw a chart in the chat, with the reference range as a band,
+- save what you tell it ("weight 166.2 this morning", "I started vitamin D
+  2000 IU"), each change shown with an **Undo** button,
+- open a file beside the chat, so "this" means that file,
+- look at a CT or X-ray image together with its radiologist's report,
+- add follow-ups ("remind me about the dentist in three months"),
+- interview you to fill in a profile,
+- look things up in MedlinePlus, RxNorm and the FDA drug labels.
+
+Which model? See the [benchmark](docs/benchmark.md): on a 12 GB GPU,
+`qwen3.5:9b` scored best, and `qwen3.5:4b` is close behind.
+
+## What it does
 
 - **Set up once, encrypted at rest.** A password, plus a recovery key shown
   once. The database is encrypted page by page and every stored file is
@@ -221,8 +335,6 @@ publishes it to GitHub's container registry as `ghcr.io/<owner>/<repo>`,
 tagged with the commit and `:latest`. A version tag (`git tag v1.2.3`)
 also publishes `:1.2.3` with the version stamped into the app. Pull
 requests run the same steps without publishing.
-
-The name lives in one place, `internal/brand`, so it can be renamed later.
 
 ## Development
 
