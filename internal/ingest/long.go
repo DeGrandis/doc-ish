@@ -472,7 +472,12 @@ func readPart(ctx context.Context, c ollama.Chatter, req Request, p part, total 
 	if err != nil {
 		return Result{}, err
 	}
-	return Parse(raw)
+	res, err := Parse(raw)
+	if err != nil {
+		return Result{}, err
+	}
+	res.Observations = tableValues(p.text, res.Observations)
+	return res, nil
 }
 
 // halve splits a part that couldn't be read into two smaller ones.

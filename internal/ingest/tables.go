@@ -2,7 +2,10 @@ package ingest
 
 import (
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -146,4 +149,127 @@ func shortRows(pages []string) []int {
 		}
 	}
 	return out
+}
+
+var cellNumber = regexp.MustCompile(`^[<>]?(\d+(?:\.\d+)?)`)
+
+// cellDate reads a date in a table's header as YYYY-MM-DD.
+func cellDate(s string) string {
+	for _, layout := range []string{"1/2/2006", "1/2/06", "2006-01-02", "1-2-2006"} {
+		if t, err := time.Parse(layout, strings.TrimSpace(s)); err == nil {
+			return t.Format("2006-01-02")
+		}
+	}
+	return ""
+}
+
+// tableValues checks what a model read from a table with a date in each
+// column against the table itself. Even with every cell spelled out a
+// model can get a date wrong (it has read 03/12/2026 as 2025-03-12) or
+// skip a cell of a row it read, and a result lost or under the wrong date
+// is worse than none. So a value takes the date of the column it's in,
+// and a row the model read gets the cells it left out. A value that isn't
+// in such a table, or that's in two columns, keeps the date it has, and a
+// row the model didn't read is left alone: it may not be a result at all.
+func tableValues(text string, vals []Value) []Value {
+	type cell struct {
+		value      float64
+		date, flag string
+	}
+	type row struct {
+		name  string
+		cells []cell
+	}
+	var rows []row
+	var header []string // each column's date, "" for the others
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		dates, n := make([]string, len(cells)), 0
+		for i, c := range cells {
+			if dates[i] = cellDate(c); dates[i] != "" {
+				n++
+			}
+		}
+		if n >= 2 {
+			header = dates
+			continue
+		}
+		if header == nil {
+			continue
+		}
+		r := row{name: strings.ToLower(strings.TrimSpace(cells[0]))}
+		for i, c := range cells {
+			if i >= len(header) || header[i] == "" {
+				continue
+			}
+			c = strings.TrimSpace(c)
+			m := cellNumber.FindStringSubmatch(c)
+			if m == nil {
+				continue
+			}
+			if v, err := strconv.ParseFloat(m[1], 64); err == nil {
+				r.cells = append(r.cells, cell{v, header[i], strings.TrimSpace(c[len(m[0]):])})
+			}
+		}
+		if r.name != "" && len(r.cells) > 0 {
+			rows = append(rows, r)
+		}
+	}
+	// A row is the one with the value's name exactly, or failing that in
+	// part ("A1c" for "Hemoglobin A1c").
+	rowsOf := func(name string) []row {
+		name = strings.ToLower(strings.TrimSpace(name))
+		var exact, part []row
+		for _, r := range rows {
+			if r.name == name {
+				exact = append(exact, r)
+			} else if name != "" && (strings.Contains(r.name, name) || strings.Contains(name, r.name)) {
+				part = append(part, r)
+			}
+		}
+		if len(exact) > 0 {
+			return exact
+		}
+		return part
+	}
+	type key struct {
+		name string
+		date string
+	}
+	read := map[key]bool{}
+	for i := range vals {
+		v := &vals[i]
+		if v.Value != nil {
+			var dates []string
+			for _, r := range rowsOf(v.Name) {
+				for _, c := range r.cells {
+					if c.value == *v.Value {
+						dates = append(dates, c.date)
+					}
+				}
+			}
+			if len(dates) > 0 && !slices.Contains(dates, v.Date) && !slices.ContainsFunc(dates, func(d string) bool { return d != dates[0] }) {
+				v.Date = dates[0]
+			}
+		}
+		for _, r := range rowsOf(v.Name) {
+			read[key{r.name, v.Date}] = true
+		}
+	}
+	for _, v := range slices.Clone(vals) {
+		for _, r := range rowsOf(v.Name) {
+			for _, c := range r.cells {
+				if k := (key{r.name, c.date}); !read[k] {
+					read[k] = true
+					value := c.value
+					vals = append(vals, Value{Name: v.Name, Value: &value, Unit: v.Unit, RefLow: v.RefLow, RefHigh: v.RefHigh, Flag: c.flag, Date: c.date})
+				}
+			}
+		}
+	}
+	return vals
 }

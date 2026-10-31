@@ -151,16 +151,18 @@ func TestReadLong(t *testing.T) {
 			}
 		}
 	}
-	ferritin := 0
+	// Every part answers with ferritin 18, once in the end, and the table
+	// has the 41 that no part gave.
+	var ferritin []float64
 	for _, o := range res.Observations {
 		if o.Name == "Ferritin" {
-			ferritin++
+			ferritin = append(ferritin, *o.Value)
 		}
 	}
-	if ferritin != 1 || len(res.Observations) != parts+1 {
-		t.Fatalf("ferritin %d times, %d values for %d parts", ferritin, len(res.Observations), parts)
+	if len(ferritin) != 2 || ferritin[0] != 18 || ferritin[1] != 41 || len(res.Observations) != parts+2 {
+		t.Fatalf("ferritin %v, %d values for %d parts", ferritin, len(res.Observations), parts)
 	}
-	if res.Title != "Health records release, 2025–2026" || res.DocDate != "2025-09-12" || res.Kind != "visit" ||
+	if res.Title != "Health records release, 2025–2026" || res.DocDate != "2026-03-12" || res.Kind != "visit" ||
 		!strings.Contains(res.Summary, "Read in") || res.PatientName != "EXAMPLE, JORDAN" || res.Confidence != "high" {
 		t.Fatalf("whole: %+v", res)
 	}

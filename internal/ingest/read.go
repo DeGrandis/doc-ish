@@ -239,6 +239,7 @@ func Read(ctx context.Context, c ollama.Chatter, req Request) (Result, error) {
 	if req.DescribeOnly {
 		res.Observations = nil
 	}
+	res.Observations = tableValues(text, res.Observations)
 	if cut && !req.DescribeOnly {
 		res.Questions = append(res.Questions, "Only the beginning of this long file was read.")
 	}
