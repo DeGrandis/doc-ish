@@ -74,6 +74,9 @@ func tessWords(ctx context.Context, img []byte) ([]word, float64, error) {
 	}
 	// --psm 6: one block of text, so a table's row stays one line.
 	cmd := exec.CommandContext(ctx, tesseractPath(), "stdin", "stdout", "--psm", "6", "tsv")
+	// One thread: it's no slower alone, and its threads spin against
+	// anything else on the machine, enough to run a page past tessTimeout.
+	cmd.Env = append(cmd.Environ(), "OMP_THREAD_LIMIT=1")
 	cmd.Stdin = &in
 	out, err := cmd.Output()
 	if err != nil {
