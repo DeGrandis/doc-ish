@@ -256,7 +256,9 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 }
 
 // ChatJSON asks for one answer shaped by a JSON schema (Ollama's
-// structured outputs) and returns it unparsed.
+// structured outputs) and returns it unparsed. An engine without them
+// (Ollama's MLX engine when it's built without its grammar library) gets
+// the schema in the instructions instead.
 func (c *Client) ChatJSON(ctx context.Context, r ChatRequest, schema any) (string, error) {
 	body := map[string]any{
 		"model":    r.Model,
@@ -269,10 +271,31 @@ func (c *Client) ChatJSON(ctx context.Context, r ChatRequest, schema any) (strin
 	var out struct {
 		Message Message `json:"message"`
 	}
-	if err := c.do(ctx, "POST", "/api/chat", body, &out); err != nil {
+	err := c.do(ctx, "POST", "/api/chat", body, &out)
+	if err != nil && strings.Contains(err.Error(), "structured output is unavailable") {
+		s, _ := json.Marshal(schema)
+		msgs := append([]Message{}, r.Messages...)
+		msgs = append(msgs, Message{Role: "user", Content: "Answer with only a JSON object matching this JSON schema, and nothing else:\n" + string(s)})
+		body["messages"] = msgs
+		delete(body, "format")
+		if err = c.do(ctx, "POST", "/api/chat", body, &out); err == nil {
+			return jsonObject(out.Message.Content), nil
+		}
+	}
+	if err != nil {
 		return "", err
 	}
 	return out.Message.Content, nil
+}
+
+// jsonObject cuts the JSON object out of an answer that may wrap it in a
+// ```json fence or a sentence.
+func jsonObject(s string) string {
+	i, j := strings.Index(s, "{"), strings.LastIndex(s, "}")
+	if i < 0 || j < i {
+		return strings.TrimSpace(s)
+	}
+	return s[i : j+1]
 }
 
 func apiError(resp *http.Response) error {
