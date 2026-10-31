@@ -2,7 +2,7 @@
 #
 # Tests, then builds the app image from this commit and pushes it to
 # GitHub's container registry as ghcr.io/<owner>/<repo>, tagged with the
-# commit (and :latest from main). Pull requests test and build without
+# commit (and :latest from master). Pull requests test and build without
 # pushing. No secrets are needed: the run's own token publishes the image.
 #
 # Built for amd64 and arm64 (Go cross-compiles; the final stage only
@@ -13,7 +13,7 @@ name: Build image
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -60,12 +60,12 @@ jobs:
       - name: Image name (from the repository; registry names must be lowercase)
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
-      - name: Tags and version (the commit always; latest from main; the version from a v* tag)
+      - name: Tags and version (the commit always; latest from master; the version from a v* tag)
         run: |
           {
             echo 'TAGS<<EOF'
             echo "$IMAGE:$GITHUB_SHA"
-            if [ "$GITHUB_REF" = refs/heads/main ]; then echo "$IMAGE:latest"; fi
+            if [ "$GITHUB_REF" = refs/heads/master ]; then echo "$IMAGE:latest"; fi
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then echo "$IMAGE:${GITHUB_REF_NAME#v}"; fi
             echo EOF
           } >> "$GITHUB_ENV"

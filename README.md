@@ -214,7 +214,7 @@ address and pick a model.
 
 ### Images and CI
 
-`.github/workflows/images.yml` runs on every push to `main`: gofmt, vet and
+`.github/workflows/images.yml` runs on every push to `master`: gofmt, vet and
 tests (with Poppler and GDCM installed, so the PDF and compressed-DICOM
 tests run), then builds the image for `linux/amd64` and `linux/arm64` and
 publishes it to GitHub's container registry as `ghcr.io/<owner>/<repo>`,
