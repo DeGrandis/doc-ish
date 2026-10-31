@@ -89,3 +89,30 @@ func TestClip(t *testing.T) {
 		t.Fatalf("%q, %v", same, cut)
 	}
 }
+
+// A model that can't reason still answers.
+func TestChatWithoutThinking(t *testing.T) {
+	var thinks []bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Think bool `json:"think"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		thinks = append(thinks, body.Think)
+		if body.Think {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":"\"m\" does not support thinking"}`)
+			return
+		}
+		fmt.Fprintln(w, `{"message":{"role":"assistant","content":"Fine."},"done":true}`)
+	}))
+	defer srv.Close()
+	c, err := New(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _, err := c.Chat(context.Background(), ChatRequest{Model: "m", Think: true}, nil)
+	if err != nil || text != "Fine." || len(thinks) != 2 {
+		t.Fatalf("%q, %v, %v", text, err, thinks)
+	}
+}

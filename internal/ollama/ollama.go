@@ -174,11 +174,12 @@ type ChatRequest struct {
 	NumPredict int  // the longest answer in tokens; 0 is MaxAnswerTokens
 	Exact      bool // temperature 0: the same answer every time (OCR)
 	Keep       int  // tokens at the start that survive if the prompt is ever too long
+	Think      bool // let the model reason before it answers, where it can
 }
 
-// MaxAnswerTokens is the longest chat answer: a long, detailed answer is
-// well under it.
-const MaxAnswerTokens = 2000
+// MaxAnswerTokens is the longest chat answer with the reasoning before it:
+// a long, detailed answer is well under it.
+const MaxAnswerTokens = 6000
 
 // Tokens estimates how much of a model's context a text takes. Medical
 // records take far more than their length suggests: a digit or a mark is
@@ -236,7 +237,7 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		"model":    r.Model,
 		"messages": r.Messages,
 		"stream":   true,
-		"think":    false,
+		"think":    r.Think,
 		// num_predict caps an answer, so a model that starts repeating
 		// itself stops in seconds instead of filling its whole context.
 		"options": map[string]any{"temperature": temp, "num_ctx": r.NumCtx, "num_predict": predict},
@@ -264,6 +265,10 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		err := apiError(resp)
 		if strings.Contains(err.Error(), "does not support tools") {
 			return "", nil, ErrNoTools
+		}
+		if r.Think && strings.Contains(err.Error(), "does not support thinking") {
+			r.Think = false
+			return c.Chat(ctx, r, onText)
 		}
 		return "", nil, err
 	}

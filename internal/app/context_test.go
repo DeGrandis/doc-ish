@@ -78,6 +78,7 @@ func TestChatFitsTheContext(t *testing.T) {
 		var req struct {
 			Messages []ollama.Message `json:"messages"`
 			Tools    json.RawMessage  `json:"tools"`
+			Think    bool             `json:"think"`
 			Options  struct {
 				NumCtx  int `json:"num_ctx"`
 				NumKeep int `json:"num_keep"`
@@ -95,6 +96,9 @@ func TestChatFitsTheContext(t *testing.T) {
 		}
 		if req.Options.NumKeep < ollama.Tokens(req.Messages[0].Content) {
 			t.Errorf("round %d keeps %d tokens, less than the rules", i+1, req.Options.NumKeep)
+		}
+		if !req.Think {
+			t.Errorf("round %d has no reasoning", i+1)
 		}
 	}
 	// What's left out is said to be left out, so the model goes looking.

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,6 +225,17 @@ func (a *App) handleChat(w http.ResponseWriter, r *http.Request) {
 // maxRounds is how many times the model may call tools for one question.
 const maxRounds = 6
 
+// savingTools are the tools that change the records.
+var savingTools = map[string]bool{"note_value": true, "update_profile": true, "add_follow_up": true, "set_follow_up": true}
+
+var savedWord = regexp.MustCompile(`(?i)\b(saved|noted|logged|recorded|added|updated)\b`)
+
+// claimsSaved reports an answer that looks like the short confirmation of
+// a save, to something the user told it rather than asked.
+func claimsSaved(said, answer string) bool {
+	return !strings.Contains(said, "?") && len(answer) < 300 && savedWord.MatchString(answer)
+}
+
 // converse runs the tool loop: the model answers or asks for tools; tools
 // run against the records and their results go back, until it answers.
 // Text streams to the browser as it comes; so do charts, opened files and
@@ -235,12 +247,14 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 	done := map[string]bool{} // tool calls already run, by name and arguments
 	room := contextRoom(set.NumCtx)
 	keep := min(ollama.Tokens(msgs[0].Content)+toolTokens(), set.NumCtx/2)
+	said := msgs[len(msgs)-1].Content
+	saved, reminded := false, false
 	for round := 0; ; round++ {
 		if round == maxRounds {
 			tools = nil // make it answer with what it has
 		}
 		fit(msgs, room)
-		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.chatModel(), Messages: msgs, NumCtx: set.NumCtx, Tools: tools, Keep: keep},
+		text, calls, err := client.Chat(ctx, ollama.ChatRequest{Model: set.chatModel(), Messages: msgs, NumCtx: set.NumCtx, Tools: tools, Keep: keep, Think: true},
 			func(t string) {
 				reply.WriteString(t)
 				send(map[string]string{"t": t})
@@ -255,7 +269,23 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 			return reply.String(), err
 		}
 		if len(calls) == 0 || tools == nil {
-			return reply.String(), nil
+			if tools == nil || saved || !claimsSaved(said, text) {
+				return reply.String(), nil
+			}
+			// Models sometimes say "saved" without calling the tool, and
+			// nothing on the screen would show that it wasn't.
+			reply.WriteString("\n\n")
+			send(map[string]string{"t": "\n\n"})
+			if reminded {
+				const notSaved = "_Nothing was saved. Please say it again._"
+				reply.WriteString(notSaved)
+				send(map[string]string{"t": notSaved})
+				return reply.String(), nil
+			}
+			reminded = true
+			msgs = append(msgs, ollama.Message{Role: "assistant", Content: text}, ollama.Message{Role: "user",
+				Content: "No tool ran, so nothing was saved. If there's something to save, call the tool now. If not, say so."})
+			continue
 		}
 		if strings.TrimSpace(text) != "" {
 			reply.WriteString("\n\n")
@@ -273,6 +303,7 @@ func (a *App) converse(ctx context.Context, client ollama.Chatter, set Settings,
 				continue
 			}
 			done[key] = true
+			saved = saved || savingTools[c.Function.Name]
 			a.mu.RLock()
 			if a.st == nil {
 				result = "Error: the records were locked."

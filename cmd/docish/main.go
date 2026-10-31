@@ -140,9 +140,10 @@ func runBench(args []string) {
 	ocr := fs.String("ocr", "", "an OCR model (like deepseek-ocr), to also read a scanned file")
 	out := fs.String("out", "", "a folder for the live report, the answers and results.md")
 	timeout := fs.Duration("timeout", 2*time.Minute, "the longest an answer may take")
+	numCtx := fs.Int("ctx", 0, "the model's context in tokens; 0 is 16384")
 	fs.Parse(args)
 	cfg := bench.Config{Models: strings.Split(*models, ","), Runs: *runs, Provider: *provider, OllamaURL: *ollamaURL,
-		RemoteURL: *remoteURL, RemoteKey: os.Getenv(*keyEnv), Reference: *ref, OCRModel: *ocr, Timeout: *timeout,
+		RemoteURL: *remoteURL, RemoteKey: os.Getenv(*keyEnv), Reference: *ref, OCRModel: *ocr, Timeout: *timeout, NumCtx: *numCtx,
 		Log: func(s string) { fmt.Println(s) }}
 	if *out != "" {
 		rec, err := bench.Open(*out, cfg)

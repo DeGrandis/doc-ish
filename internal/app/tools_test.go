@@ -262,3 +262,45 @@ func TestOtherProfilesFilesAreOffLimits(t *testing.T) {
 		t.Fatalf("Sam's assistant read Jane's file: %q %v", out, err)
 	}
 }
+
+// "Saved" with no tool call gets one reminder, which saves it.
+func TestClaimedSaveIsSaved(t *testing.T) {
+	o := &scriptedOllama{steps: []string{
+		`{"content":"Weight of 166.2 lb saved for today."}`,
+		`{"tool_calls":[{"function":{"name":"note_value","arguments":{"name":"Weight","value":166.2,"unit":"lb"}}}]}`,
+		`{"content":"Saved."}`,
+	}}
+	srv, c := signedIn(t, o.server(t).URL)
+	chat(t, c, srv.URL+"/api/people/1/chat", "weight 166.2 this morning", 0)
+	if len(o.seen) != 3 || !strings.Contains(o.seen[1], "nothing was saved") {
+		t.Fatalf("calls: %v", o.seen)
+	}
+	var obs []store.Observation
+	call(t, c, "GET", srv.URL+"/api/people/1/observations?name=weight", nil, &obs)
+	if len(obs) != 1 || *obs[0].Value != 166.2 {
+		t.Fatalf("weight: %+v", obs)
+	}
+}
+
+// If it still doesn't save, the answer says so.
+func TestClaimedSaveThatNeverHappens(t *testing.T) {
+	o := &scriptedOllama{steps: []string{`{"content":"Saved your weight."}`, `{"content":"Saved your weight."}`}}
+	srv, c := signedIn(t, o.server(t).URL)
+	var text string
+	for _, ev := range chat(t, c, srv.URL+"/api/people/1/chat", "weight 166.2", 0) {
+		text += ev.T
+	}
+	if !strings.HasSuffix(text, "_Nothing was saved. Please say it again._") || len(o.seen) != 2 {
+		t.Fatalf("%d calls: %q", len(o.seen), text)
+	}
+}
+
+// Answering a question about what's on record isn't claiming a save.
+func TestQuestionAboutASaveIsLeftAlone(t *testing.T) {
+	o := &scriptedOllama{steps: []string{`{"content":"Your weight was recorded on 2026-01-02."}`}}
+	srv, c := signedIn(t, o.server(t).URL)
+	chat(t, c, srv.URL+"/api/people/1/chat", "when was my weight taken?", 0)
+	if len(o.seen) != 1 {
+		t.Fatalf("%d calls", len(o.seen))
+	}
+}
