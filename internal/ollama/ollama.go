@@ -240,7 +240,9 @@ func (c *Client) Chat(ctx context.Context, r ChatRequest, onText func(string)) (
 		}
 		if t := chunk.Message.Content; t != "" {
 			all.WriteString(t)
-			onText(t)
+			if onText != nil {
+				onText(t)
+			}
 		}
 		calls = append(calls, chunk.Message.ToolCalls...)
 		if chunk.Done {
